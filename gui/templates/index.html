@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockWarren Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>StockWarren Trading Dashboard</h1>
+        <div id="status-bar">
+            <span id="market-status" class="badge">--</span>
+            <span id="mode-badge" class="badge">PAPER</span>
+            <span id="bot-status" class="badge">STOPPED</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Account Overview -->
+        <section class="card" id="account-section">
+            <h2>Account</h2>
+            <div class="metrics-grid">
+                <div class="metric">
+                    <span class="label">Portfolio Value</span>
+                    <span class="value" id="portfolio-value">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Cash</span>
+                    <span class="value" id="cash">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Buying Power</span>
+                    <span class="value" id="buying-power">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Day Trades</span>
+                    <span class="value" id="day-trades">--</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Performance Stats -->
+        <section class="card" id="stats-section">
+            <h2>Performance</h2>
+            <div class="metrics-grid">
+                <div class="metric">
+                    <span class="label">Daily P&L</span>
+                    <span class="value" id="daily-pnl">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Total P&L</span>
+                    <span class="value" id="total-pnl">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Win Rate</span>
+                    <span class="value" id="win-rate">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Total Trades</span>
+                    <span class="value" id="total-trades">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Max Drawdown</span>
+                    <span class="value" id="max-drawdown">--</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Consecutive Losses</span>
+                    <span class="value" id="consec-losses">--</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Bot Controls -->
+        <section class="card" id="controls-section">
+            <h2>Controls</h2>
+            <div class="controls">
+                <button id="btn-start" class="btn btn-start" onclick="startBot()">Start Bot</button>
+                <button id="btn-stop" class="btn btn-stop" onclick="stopBot()">Stop Bot</button>
+                <button id="btn-scan" class="btn btn-scan" onclick="runScan()">Scan Market</button>
+                <button id="btn-emergency" class="btn btn-emergency" onclick="emergencyStop()">EMERGENCY STOP</button>
+            </div>
+        </section>
+
+        <!-- Active Positions -->
+        <section class="card" id="positions-section">
+            <h2>Active Positions</h2>
+            <table id="positions-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Entry</th>
+                        <th>Current</th>
+                        <th>P&L</th>
+                        <th>P&L %</th>
+                    </tr>
+                </thead>
+                <tbody id="positions-body">
+                    <tr><td colspan="7" class="empty">No active positions</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Open Orders -->
+        <section class="card" id="orders-section">
+            <h2>Open Orders</h2>
+            <table id="orders-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Qty</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="orders-body">
+                    <tr><td colspan="6" class="empty">No open orders</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Watchlist -->
+        <section class="card" id="watchlist-section">
+            <h2>Watchlist</h2>
+            <div class="watchlist-controls">
+                <input type="text" id="watchlist-input" placeholder="Add symbol (e.g., AAPL)">
+                <button class="btn btn-small" onclick="addToWatchlist()">Add</button>
+            </div>
+            <div id="watchlist-tags"></div>
+        </section>
+
+        <!-- Scan Results -->
+        <section class="card" id="scan-section" style="display:none;">
+            <h2>Scan Results</h2>
+            <table id="scan-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Score</th>
+                        <th>Direction</th>
+                        <th>Price</th>
+                        <th>Change</th>
+                        <th>Vol Ratio</th>
+                        <th>Reasons</th>
+                    </tr>
+                </thead>
+                <tbody id="scan-body"></tbody>
+            </table>
+        </section>
+
+        <!-- Trade History -->
+        <section class="card" id="history-section">
+            <h2>Recent Trades</h2>
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Entry</th>
+                        <th>Signal</th>
+                        <th>R:R</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    <tr><td colspan="7" class="empty">No trades yet</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <footer>
+        <p>StockWarren v1.0 | <span id="last-update">--</span></p>
+    </footer>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

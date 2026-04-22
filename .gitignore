@@ -1,0 +1,44 @@
+# StockWarren Git Ignore
+
+# Environment & Secrets
+.env
+*.pem
+*.key
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+env/
+
+# ML Models (large files)
+data/models/*.pkl
+data/models/*.joblib
+data/models/*.npz
+
+# Logs & Data
+logs/*.log
+logs/*.csv
+data/*.csv
+
+# Keep directories
+!logs/.gitkeep
+!data/.gitkeep
+!data/models/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
