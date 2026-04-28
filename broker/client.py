@@ -33,6 +33,8 @@ from alpaca.data.requests import (
 )
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
+from src.utils.retry import retry_on_failure
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,8 +68,44 @@ class AlpacaClient:
 
         logger.info(f"Alpaca client initialized (paper={self.paper})")
 
+    # ==================== Health Check ====================
+
+    def health_check(self) -> dict:
+        """
+        Quick health check without retries. Used to verify API availability.
+        Returns dict with 'healthy', 'latency_ms', and optional 'error'.
+        """
+        import time as _time
+        start = _time.time()
+        try:
+            # Use clock endpoint - no authentication issues, fast
+            self.trading_client.get_clock()
+            latency_ms = int((_time.time() - start) * 1000)
+            return {"healthy": True, "latency_ms": latency_ms}
+        except Exception as e:
+            latency_ms = int((_time.time() - start) * 1000)
+            return {
+                "healthy": False,
+                "latency_ms": latency_ms,
+                "error": str(e),
+            }
+
+    def wait_for_api(self, timeout: float = 120.0, interval: float = 5.0) -> bool:
+        """
+        Block until API becomes available, or timeout. Used at startup.
+        Returns True if API is reachable, False on timeout.
+        """
+        from src.utils.retry import retry_until
+        return retry_until(
+            condition=lambda: self.health_check()["healthy"],
+            timeout=timeout,
+            interval=interval,
+            description="Alpaca API connectivity",
+        )
+
     # ==================== Account ====================
 
+    @retry_on_failure(max_attempts=4, initial_delay=1.0, backoff_factor=2.0)
     def get_account(self) -> dict:
         """Get account information"""
         account = self.trading_client.get_account()
@@ -87,11 +125,13 @@ class AlpacaClient:
             "account_blocked": account.account_blocked,
         }
 
+    @retry_on_failure(max_attempts=4, initial_delay=1.0)
     def is_market_open(self) -> bool:
         """Check if the market is currently open"""
         clock = self.trading_client.get_clock()
         return clock.is_open
 
+    @retry_on_failure(max_attempts=4, initial_delay=1.0)
     def get_market_hours(self) -> dict:
         """Get market hours for today"""
         clock = self.trading_client.get_clock()
@@ -103,6 +143,7 @@ class AlpacaClient:
 
     # ==================== Orders ====================
 
+    @retry_on_failure(max_attempts=2, initial_delay=0.5, backoff_factor=2.0)
     def place_market_order(self, symbol: str, qty: float, side: str,
                            time_in_force: str = "day") -> dict:
         """Place a market order"""
@@ -120,6 +161,7 @@ class AlpacaClient:
         logger.info(f"Market order placed: {side} {qty} {symbol}")
         return self._order_to_dict(order)
 
+    @retry_on_failure(max_attempts=2, initial_delay=0.5, backoff_factor=2.0)
     def place_limit_order(self, symbol: str, qty: float, side: str,
                           limit_price: float, time_in_force: str = "day") -> dict:
         """Place a limit order"""
@@ -138,6 +180,7 @@ class AlpacaClient:
         logger.info(f"Limit order placed: {side} {qty} {symbol} @ {limit_price}")
         return self._order_to_dict(order)
 
+    @retry_on_failure(max_attempts=3, initial_delay=0.5, backoff_factor=2.0)
     def place_stop_order(self, symbol: str, qty: float, side: str,
                          stop_price: float, time_in_force: str = "day") -> dict:
         """Place a stop order"""
@@ -218,6 +261,7 @@ class AlpacaClient:
         logger.info(f"Cancelled {count} orders")
         return count
 
+    @retry_on_failure(max_attempts=3, initial_delay=1.0)
     def get_orders(self, status: str = "open", limit: int = 50) -> list:
         """Get orders by status"""
         query_status = QueryOrderStatus.OPEN if status == "open" else QueryOrderStatus.ALL
@@ -232,6 +276,7 @@ class AlpacaClient:
 
     # ==================== Positions ====================
 
+    @retry_on_failure(max_attempts=3, initial_delay=1.0)
     def get_positions(self) -> list:
         """Get all open positions"""
         positions = self.trading_client.get_all_positions()
@@ -264,6 +309,7 @@ class AlpacaClient:
 
     # ==================== Market Data ====================
 
+    @retry_on_failure(max_attempts=3, initial_delay=1.0)
     def get_bars(self, symbol: str, timeframe: str = "5Min",
                  start: datetime = None, limit: int = 200) -> "pd.DataFrame":
         """Get historical bar data"""
@@ -290,6 +336,7 @@ class AlpacaClient:
         df.index = pd.to_datetime(df.index)
         return df
 
+    @retry_on_failure(max_attempts=3, initial_delay=0.5)
     def get_latest_quote(self, symbol: str) -> dict:
         """Get the latest quote for a symbol"""
         request = StockLatestQuoteRequest(symbol_or_symbols=symbol)

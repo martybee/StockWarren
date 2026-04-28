@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  StockWarren launchd service for macOS
+
+  Install:
+    1. Edit WorkingDirectory and ProgramArguments below to match your paths
+    2. Copy this file to ~/Library/LaunchAgents/com.stockwarren.bot.plist
+    3. Load it: launchctl load ~/Library/LaunchAgents/com.stockwarren.bot.plist
+    4. Start it: launchctl start com.stockwarren.bot
+
+  Useful commands:
+    launchctl list | grep stockwarren     # check if running
+    launchctl unload ~/Library/LaunchAgents/com.stockwarren.bot.plist  # stop
+    tail -f /Users/YOUR_USER/StockWarren/logs/launchd.out.log
+
+  KeepAlive ensures auto-restart if the process crashes.
+  RunAtLoad starts it when you log in.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.stockwarren.bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOUR_USER/StockWarren/venv/bin/python</string>
+        <string>/Users/YOUR_USER/StockWarren/main.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USER/StockWarren</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/YOUR_USER/StockWarren/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Auto-restart if it crashes -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <!-- Wait at least 30 seconds between restart attempts -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- Start when user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Don't run as root -->
+    <key>UserName</key>
+    <string>YOUR_USER</string>
+
+    <!-- Logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/StockWarren/logs/launchd.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/StockWarren/logs/launchd.err.log</string>
+
+    <!-- Don't restart more than once every 30 seconds, ever -->
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+
+    <!-- Process limits -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+    </dict>
+
+    <!-- Nice priority (slightly lower than default) -->
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

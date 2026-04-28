@@ -44,6 +44,17 @@ def get_status():
     return jsonify(bot.get_status())
 
 
+@app.route("/api/health")
+def get_health():
+    """API health check endpoint - useful for monitoring tools"""
+    if bot is None:
+        return jsonify({"healthy": False, "reason": "bot not initialized"}), 503
+
+    health = bot.alpaca.health_check()
+    status_code = 200 if health["healthy"] else 503
+    return jsonify(health), status_code
+
+
 @app.route("/api/account")
 def get_account():
     if bot is None:

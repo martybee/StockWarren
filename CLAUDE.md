@@ -83,6 +83,27 @@ All settings live in `config/settings.ini`. Key sections:
 1. **One-way trailing stops**: Stops can ONLY tighten, NEVER loosen. See `risk_manager.py:update_trailing_stop`. This is the most important safety invariant — do not change it.
 2. **Limit orders preferred**: Bot uses limit orders for entries (0.1% above/below current price), market orders only when explicitly scheduled.
 3. **Paper trading only**: `paper=True` is hardcoded in `trading_bot.py`. Don't switch to live without explicit user approval.
+4. **Order placement uses 2-3 retries max**: Higher retry counts on order placement risk duplicate orders. See `broker/client.py` decorators.
+
+## Operational Safeguards (live-trading hardening)
+
+- **Retry logic** (`src/utils/retry.py`): Exponential backoff for transient errors. Detects 408/429/5xx and connection errors. Permanent errors (4xx auth) fail fast.
+- **Rotating logs** (`src/utils/logging_setup.py`): `logs/stockwarren.log` (10MB × 5 backups), `logs/errors.log` (warnings+), and append-only `logs/trades/trades_YYYY-MM.log` audit log that never rotates.
+- **Market calendar** (`src/utils/market_calendar.py`): All times in `America/New_York`. Use `get_status(alpaca_client)` to get authoritative market state from Alpaca's clock.
+- **EOD flattening** (`src/engine/eod_manager.py`): Background thread that closes day-trade positions N minutes before close (config: `close_before_eod_minutes`). Swing positions are spared. Untracked positions are closed defensively.
+- **Slippage tracker** (`src/utils/slippage_tracker.py`): Records expected vs actual fill price + latency to `logs/slippage.csv`. Critical for paper-vs-live reality check.
+- **Startup health check** (`main.py`): Waits up to 120s (configurable via `--startup-timeout`) for Alpaca API. Use `--skip-startup-check` to bypass during dev.
+- **Graceful shutdown**: `main.py` catches SIGTERM/SIGINT and stops scheduler/EOD/bot in order before exit.
+
+## Process Supervisors
+
+- **macOS**: [setup/services/com.stockwarren.bot.plist](setup/services/com.stockwarren.bot.plist) — replace `YOUR_USER` and load with `launchctl load`.
+- **Linux**: [setup/services/stockwarren.service](setup/services/stockwarren.service) — replace `YOUR_USER` and enable with `systemctl`.
+- **Cross-platform**: [setup/supervisor.sh](setup/supervisor.sh) — bash wrapper with exponential backoff and rate limiting (max 10 restarts/hour).
+
+## Health Endpoint
+
+`GET /api/health` returns `{"healthy": bool, "latency_ms": int}` with 503 if Alpaca API is unreachable. Hook this into uptime monitors (UptimeRobot, healthchecks.io, etc.).
 
 ## Key API Endpoints (Flask)
 

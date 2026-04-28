@@ -1,0 +1,61 @@
+# StockWarren systemd service for Linux
+#
+# Install:
+#   1. Edit User, WorkingDirectory, and ExecStart below to match your paths
+#   2. sudo cp setup/services/stockwarren.service /etc/systemd/system/
+#   3. sudo systemctl daemon-reload
+#   4. sudo systemctl enable stockwarren    # auto-start on boot
+#   5. sudo systemctl start stockwarren     # start now
+#
+# Useful commands:
+#   sudo systemctl status stockwarren        # is it running?
+#   sudo systemctl restart stockwarren       # restart
+#   sudo systemctl stop stockwarren          # stop
+#   sudo journalctl -u stockwarren -f        # follow logs
+#   sudo journalctl -u stockwarren --since "1 hour ago"
+
+[Unit]
+Description=StockWarren Automated Stock Trading Bot
+Documentation=https://github.com/martybee/StockWarren
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+Group=YOUR_USER
+
+WorkingDirectory=/home/YOUR_USER/StockWarren
+ExecStart=/home/YOUR_USER/StockWarren/venv/bin/python /home/YOUR_USER/StockWarren/main.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+StartLimitInterval=600
+StartLimitBurst=5
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/home/YOUR_USER/StockWarren/.env
+
+# Logging (systemd journal + file)
+StandardOutput=append:/home/YOUR_USER/StockWarren/logs/systemd.out.log
+StandardError=append:/home/YOUR_USER/StockWarren/logs/systemd.err.log
+
+# Resource limits
+LimitNOFILE=4096
+MemoryMax=1G
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/YOUR_USER/StockWarren
+
+# Graceful shutdown - give bot time to close positions
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
