@@ -16,6 +16,10 @@
         </div>
     </header>
 
+    <div id="countdown-bar">
+        <span id="market-countdown" class="countdown closed">--:--:-- until market opens</span>
+    </div>
+
     <main>
         <!-- Account Overview -->
         <section class="card" id="account-section">
@@ -121,6 +125,115 @@
                     <tr><td colspan="6" class="empty">No open orders</td></tr>
                 </tbody>
             </table>
+        </section>
+
+        <!-- Schedule a Trade -->
+        <section class="card" id="schedule-section">
+            <h2>Schedule a Trade</h2>
+            <div class="schedule-form">
+                <div class="form-row">
+                    <div class="form-group autocomplete-wrapper">
+                        <label>Symbol</label>
+                        <input type="text" id="sched-symbol" placeholder="Search stocks..." autocomplete="off" oninput="onSymbolInput(this.value)">
+                        <div id="symbol-dropdown" class="autocomplete-dropdown"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Side</label>
+                        <select id="sched-side">
+                            <option value="buy">BUY</option>
+                            <option value="sell">SELL</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Qty</label>
+                        <input type="number" id="sched-qty" placeholder="1" min="1" value="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Order Type</label>
+                        <select id="sched-type" onchange="toggleLimitPrice()">
+                            <option value="market">Market</option>
+                            <option value="limit">Limit</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" id="limit-price-group" style="display:none;">
+                        <label>Limit Price</label>
+                        <input type="number" id="sched-limit" placeholder="0.00" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="sched-date">
+                    </div>
+                    <div class="form-group">
+                        <label>Time (ET)</label>
+                        <input type="time" id="sched-time" value="09:30">
+                    </div>
+                    <div class="form-group">
+                        <label>Stop Loss %</label>
+                        <input type="number" id="sched-sl" placeholder="2.0" step="0.1" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Take Profit %</label>
+                        <input type="number" id="sched-tp" placeholder="4.0" step="0.1" min="0">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:2;">
+                        <label>Notes (optional)</label>
+                        <input type="text" id="sched-notes" placeholder="Reason for this trade...">
+                    </div>
+                    <div class="form-group quote-display" id="quote-display" style="display:none;">
+                        <label>Current Price</label>
+                        <span id="sched-quote-price" class="value">--</span>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <button class="btn btn-start" onclick="submitScheduledTrade()">Schedule Trade</button>
+                </div>
+            </div>
+
+            <!-- Pending Scheduled Trades -->
+            <h3 style="margin-top:20px; color:var(--text-secondary);">Pending Scheduled Trades</h3>
+            <table id="scheduled-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Type</th>
+                        <th>Scheduled Time</th>
+                        <th>SL / TP</th>
+                        <th>Notes</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="scheduled-body">
+                    <tr><td colspan="9" class="empty">No scheduled trades</td></tr>
+                </tbody>
+            </table>
+
+            <!-- Scheduled Trade History -->
+            <details style="margin-top:12px;">
+                <summary style="color:var(--text-secondary); cursor:pointer; font-size:13px;">Scheduled Trade History</summary>
+                <table id="scheduled-history-table" style="margin-top:8px;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Qty</th>
+                            <th>Scheduled</th>
+                            <th>Status</th>
+                            <th>Executed</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scheduled-history-body">
+                        <tr><td colspan="7" class="empty">No history</td></tr>
+                    </tbody>
+                </table>
+            </details>
         </section>
 
         <!-- Watchlist -->

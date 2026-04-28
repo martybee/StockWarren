@@ -23,6 +23,7 @@ data/models/*.npz
 logs/*.log
 logs/*.csv
 data/*.csv
+data/scheduled_trades.json
 
 # Keep directories
 !logs/.gitkeep

@@ -139,6 +139,78 @@ def run_scan():
         return jsonify({"error": str(e)}), 500
 
 
+# ==================== Stock Search ====================
+
+# Cache the asset list so we don't hit the API every keystroke
+_asset_cache = None
+_asset_cache_time = None
+
+
+def _get_asset_list():
+    """Get and cache the list of tradeable assets"""
+    global _asset_cache, _asset_cache_time
+    import time as _time
+
+    # Cache for 1 hour
+    if _asset_cache and _asset_cache_time and (_time.time() - _asset_cache_time) < 3600:
+        return _asset_cache
+
+    try:
+        assets = bot.alpaca.trading_client.get_all_assets()
+        _asset_cache = [
+            {"symbol": a.symbol, "name": a.name or a.symbol, "exchange": a.exchange}
+            for a in assets
+            if a.tradable and a.status.value == "active"
+            and a.asset_class.value == "us_equity"
+            and "." not in a.symbol
+            and not a.symbol.endswith("W")
+        ]
+        _asset_cache_time = _time.time()
+        logger.info(f"Asset cache loaded: {len(_asset_cache)} stocks")
+    except Exception as e:
+        logger.error(f"Failed to load assets: {e}")
+        if _asset_cache is None:
+            _asset_cache = []
+
+    return _asset_cache
+
+
+@app.route("/api/stocks/search")
+def search_stocks():
+    """Search for stocks by symbol or name"""
+    if bot is None:
+        return jsonify({"error": "Bot not initialized"}), 503
+
+    query = request.args.get("q", "").upper().strip()
+    if len(query) < 1:
+        return jsonify([])
+
+    assets = _get_asset_list()
+
+    # Exact symbol matches first, then prefix matches, then contains
+    exact = []
+    prefix = []
+    contains = []
+
+    for a in assets:
+        sym = a["symbol"].upper()
+        name = a["name"].upper()
+
+        if sym == query:
+            exact.append(a)
+        elif sym.startswith(query):
+            prefix.append(a)
+        elif query in name:
+            contains.append(a)
+
+    # Sort prefix by symbol length (shorter = more relevant)
+    prefix.sort(key=lambda x: len(x["symbol"]))
+    contains.sort(key=lambda x: len(x["symbol"]))
+
+    results = exact + prefix + contains
+    return jsonify(results[:15])
+
+
 # ==================== Bot Control ====================
 
 @app.route("/api/bot/start", methods=["POST"])
@@ -165,6 +237,79 @@ def emergency_stop():
         return jsonify({"error": "Bot not initialized"}), 503
     bot.emergency_stop()
     return jsonify({"status": "emergency_stop_activated"})
+
+
+# ==================== Scheduled Trades ====================
+
+# Global scheduler reference (set alongside bot)
+scheduler = None
+
+
+def set_scheduler(scheduler_instance):
+    global scheduler
+    scheduler = scheduler_instance
+
+
+@app.route("/api/scheduled", methods=["GET"])
+def get_scheduled_trades():
+    if scheduler is None:
+        return jsonify({"error": "Scheduler not initialized"}), 503
+    return jsonify({
+        "pending": scheduler.get_pending_trades(),
+        "history": scheduler.get_history(),
+    })
+
+
+@app.route("/api/scheduled", methods=["POST"])
+def create_scheduled_trade():
+    if scheduler is None:
+        return jsonify({"error": "Scheduler not initialized"}), 503
+
+    data = request.get_json()
+
+    required = ["symbol", "side", "qty", "order_type", "scheduled_time"]
+    for field in required:
+        if field not in data:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    try:
+        trade = scheduler.schedule_trade(
+            symbol=data["symbol"],
+            side=data["side"],
+            qty=float(data["qty"]),
+            order_type=data["order_type"],
+            scheduled_time=data["scheduled_time"],
+            limit_price=float(data["limit_price"]) if data.get("limit_price") else None,
+            stop_loss_pct=float(data["stop_loss_pct"]) if data.get("stop_loss_pct") else None,
+            take_profit_pct=float(data["take_profit_pct"]) if data.get("take_profit_pct") else None,
+            notes=data.get("notes", ""),
+        )
+        return jsonify(trade.to_dict())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/scheduled/<trade_id>", methods=["DELETE"])
+def cancel_scheduled_trade(trade_id):
+    if scheduler is None:
+        return jsonify({"error": "Scheduler not initialized"}), 503
+
+    if scheduler.cancel_trade(trade_id):
+        return jsonify({"status": "cancelled", "id": trade_id})
+    else:
+        return jsonify({"error": "Trade not found or already executed"}), 404
+
+
+@app.route("/api/scheduled/quote/<symbol>")
+def get_quote_for_schedule(symbol):
+    """Get a quick quote to help user set limit price"""
+    if bot is None:
+        return jsonify({"error": "Bot not initialized"}), 503
+    try:
+        quote = bot.alpaca.get_latest_quote(symbol.upper())
+        return jsonify(quote)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ==================== WebSocket ====================

@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional
 from configparser import ConfigParser
 
-from alpaca.client import AlpacaClient
+from broker.client import AlpacaClient
 from src.indicators.technical import TechnicalIndicators
 from src.ml.signal_validator import SignalValidator
 from src.scanner.stock_scanner import StockScanner, WatchlistManager

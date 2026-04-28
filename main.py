@@ -60,7 +60,12 @@ def main():
 
     # Initialize trading bot
     from src.engine.trading_bot import TradingBot
+    from src.engine.scheduler import TradeScheduler
     bot = TradingBot(config_path=args.config)
+
+    # Initialize trade scheduler
+    scheduler = TradeScheduler(bot.alpaca, bot.risk_manager)
+    scheduler.start()
 
     account = bot.alpaca.get_account()
     logger.info(f"Mode: {'PAPER' if bot.alpaca.paper else 'LIVE'}")
@@ -76,16 +81,18 @@ def main():
     elif args.dash_only:
         # Run dashboard only (no bot)
         logger.info(f"Starting dashboard at http://{args.host}:{args.port}")
-        from gui.app import run_dashboard, set_bot
+        from gui.app import run_dashboard, set_bot, set_scheduler
         set_bot(bot)
+        set_scheduler(scheduler)
         run_dashboard(host=args.host, port=args.port)
 
     else:
         # Run both bot and dashboard
         logger.info(f"Starting bot + dashboard at http://{args.host}:{args.port}")
 
-        from gui.app import run_dashboard, set_bot
+        from gui.app import run_dashboard, set_bot, set_scheduler
         set_bot(bot)
+        set_scheduler(scheduler)
 
         # Start bot in background thread
         bot_thread = threading.Thread(target=bot.start, daemon=True)
