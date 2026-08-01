@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Asset class**: US Equities only (paper trading via Alpaca)
 - **Trading styles**: Day trading + swing trading
-- **Language**: Pure Python (no C++ unlike FutureWarren)
-- **Account**: Paper trading account with ~$300 (configured for small balance)
+- **Language**: Pure Python
+- **Account**: Paper trading account
 
 ## Critical Naming Note
 
@@ -84,6 +84,38 @@ All settings live in `config/settings.ini`. Key sections:
 2. **Limit orders preferred**: Bot uses limit orders for entries (0.1% above/below current price), market orders only when explicitly scheduled.
 3. **Paper trading only**: `paper=True` is hardcoded in `trading_bot.py`. Don't switch to live without explicit user approval.
 4. **Order placement uses 2-3 retries max**: Higher retry counts on order placement risk duplicate orders. See `broker/client.py` decorators.
+
+## Trading Safety Constitution (HARD invariants)
+
+These seven rules are non-negotiable and **fail-closed** — when in doubt the answer is
+always NO TRADE / NO NEW ORDER / SMALLER SIZE. The canonical, in-code copy lives in
+`src/engine/safety.py` (module docstring). Do not weaken any of these without explicit
+user approval.
+
+| # | Rule | Enforced by |
+|---|------|-------------|
+| 1 | The strategy may **propose** trades, but the risk engine can always **reject** them. | `RiskManager.approve_order()` — the single mandatory veto gate; every entry passes through it. |
+| 2 | The strategy may propose **code changes**, but cannot modify production code automatically. | Governance/process (this doc). The running bot has no code-editing capability. AI agents: propose diffs, never auto-apply to a running trading process. |
+| 3 | It cannot change **position limits, loss limits, or leverage**. | `RiskManager` limits are read-only `@property`s backed by a `frozen` `_RiskLimits`; the **strategy** has no setter. A **human operator** may retune them via `apply_operator_override()` / the dashboard, clamped to hard ceilings (`RiskManager.OVERRIDABLE`). `MAX_LEVERAGE = 1.0` (cash only) is never overridable. |
+| 4 | It cannot **disable stops or kill switches**. | Every entry must be stop-protected or it's immediately unwound (`_unwind_unprotected`, no naked positions). `KillSwitch` is file-backed; the bot can `trip()` but has **no reset method** — a human must delete `data/KILL_SWITCH.lock`. |
+| 5 | Missing, stale, contradictory, or malformed data must produce **NO TRADE**. | `safety.validate_market_data()` gates every `_evaluate_symbol`. |
+| 6 | Unrecognized broker responses must produce **NO NEW ORDERS**. | `safety.validate_order_response()`; an "unrecognized" classification trips the kill switch + per-tick halt. |
+| 7 | Any uncertainty should **reduce the position or result in no trade**. | `safety.compute_uncertainty_factor()` scales size in [0,1]; below `MIN_SIZE_FACTOR` ⇒ 0 (no trade). |
+
+**Kill switch operations:** to halt the bot, `emergency_stop()` (dashboard `POST /api/bot/emergency`)
+trips it. To resume, a human removes `data/KILL_SWITCH.lock` by hand — there is no
+programmatic reset, by design.
+
+**Operator overrides (human-only risk tuning):** risk limits are configured in
+`config/settings.ini`, but `[trading]` position/cash limits are forwarded into the
+`RiskManager` in `trading_bot.py` (they would otherwise be ignored — the engine only
+reads the `[risk_management]` section). A human can retune limits at runtime from the
+**Safety modal** (header `SAFE/HALTED` badge or the "🛡 Safety Rules" button):
+`max_positions`, `risk_per_trade_pct` (risk tolerance), `max_position_pct`,
+`max_daily_loss_pct`, `min_risk_reward_ratio`. Every value is **clamped to hard
+ceilings** in `RiskManager.OVERRIDABLE` and **persisted** to
+`data/operator_overrides.json` (re-applied on startup). Endpoints: `GET/POST /api/overrides`,
+`POST /api/overrides/reset`. Leverage is never overridable.
 
 ## Operational Safeguards (live-trading hardening)
 

@@ -55,6 +55,82 @@ def get_health():
     return jsonify(health), status_code
 
 
+@app.route("/api/safety")
+def get_safety():
+    """Trading Safety Constitution + live enforcement state (Rules 1-7)."""
+    if bot is None:
+        return jsonify({"error": "Bot not initialized"}), 503
+
+    from src.engine.safety import RULES
+    rm = bot.risk_manager
+    ks = bot.kill_switch
+    return jsonify({
+        "rules": RULES,
+        "kill_switch": {
+            "tripped": ks.is_tripped(),
+            "reason": ks.reason(),
+            "reset_hint": ks.manual_reset_instructions(ks.path),
+        },
+        "halt_new_orders": getattr(bot, "_halt_new_orders", False),
+        "is_paused": rm.is_paused,
+        "limits_locked": True,
+        "limits": {
+            "max_leverage": rm.max_leverage,
+            "max_positions": rm.max_positions,
+            "max_position_pct": rm.max_position_pct,
+            "risk_per_trade_pct": rm.risk_per_trade_pct,
+            "max_daily_loss": rm.max_daily_loss,
+            "max_daily_loss_pct": rm.max_daily_loss_pct,
+            "min_cash_reserve_pct": rm.min_cash_reserve_pct,
+            "min_risk_reward_ratio": rm.min_risk_reward_ratio,
+            "max_consecutive_losses": rm.max_consecutive_losses,
+        },
+    })
+
+
+@app.route("/api/overrides", methods=["GET"])
+def get_overrides():
+    """Current effective limits + the allowed override ranges (for the UI form)."""
+    if bot is None:
+        return jsonify({"error": "Bot not initialized"}), 503
+    from src.engine.risk_manager import RiskManager
+    return jsonify({
+        "current": bot.risk_manager.get_limits(),
+        "spec": RiskManager.OVERRIDABLE,
+    })
+
+
+@app.route("/api/overrides", methods=["POST"])
+def set_overrides():
+    """Apply human-operator overrides (validated + clamped by the RiskManager),
+    then persist them so they survive a restart."""
+    if bot is None:
+        return jsonify({"error": "Bot not initialized"}), 503
+
+    data = request.get_json(silent=True) or {}
+    result = bot.risk_manager.apply_operator_override(data)
+
+    # Persist the merged, already-clamped set of overrides.
+    if result.get("applied"):
+        from src.utils.overrides import load_overrides, save_overrides
+        merged = load_overrides()
+        merged.update(result["applied"])
+        save_overrides(merged)
+
+    return jsonify(result)
+
+
+@app.route("/api/overrides/reset", methods=["POST"])
+def reset_overrides():
+    """Revert limits to the config baseline and clear the persisted file."""
+    if bot is None:
+        return jsonify({"error": "Bot not initialized"}), 503
+    from src.utils.overrides import clear_overrides
+    limits = bot.risk_manager.reset_operator_override()
+    clear_overrides()
+    return jsonify({"limits": limits})
+
+
 @app.route("/api/account")
 def get_account():
     if bot is None:

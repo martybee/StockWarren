@@ -6,10 +6,35 @@ One-way trailing stops, position sizing, daily loss limits
 
 import logging
 from datetime import datetime, date
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
+from src.engine.safety import MAX_LEVERAGE
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _RiskLimits:
+    """
+    Immutable snapshot of every risk limit (Rule 3: limits cannot change at
+    runtime). Frozen => any attempt to reassign a field raises FrozenInstanceError,
+    and the RiskManager exposes these only through read-only properties.
+    """
+    max_daily_loss: float
+    max_daily_loss_pct: float
+    max_positions: int
+    max_position_pct: float
+    min_cash_reserve_pct: float
+    risk_per_trade_pct: float
+    default_stop_loss_pct: float
+    default_take_profit_pct: float
+    trailing_stop_activation_pct: float
+    trailing_stop_distance_pct: float
+    max_consecutive_losses: int
+    pause_duration_minutes: int
+    min_risk_reward_ratio: float
+    max_leverage: float = MAX_LEVERAGE
 
 
 @dataclass
@@ -60,34 +85,207 @@ class Position:
 class RiskManager:
     """Manages risk, position sizing, and trade safety"""
 
+    # Absolute ceilings for human-operator overrides. A human may TUNE limits
+    # within these bounds via apply_operator_override(); exceeding them requires
+    # a code change (defense in depth). Leverage is deliberately absent — it is
+    # NEVER overridable and stays MAX_LEVERAGE (Rule 3).
+    OVERRIDABLE = {
+        "max_positions":         {"type": "int",   "min": 1,   "max": 20,   "label": "Max Positions"},
+        "max_position_pct":      {"type": "float", "min": 1.0, "max": 100.0, "label": "Max Position % of Portfolio"},
+        "risk_per_trade_pct":    {"type": "float", "min": 0.1, "max": 5.0,  "label": "Risk Tolerance % per Trade"},
+        "max_daily_loss_pct":    {"type": "float", "min": 0.5, "max": 50.0, "label": "Max Daily Loss %"},
+        "min_risk_reward_ratio": {"type": "float", "min": 1.0, "max": 10.0, "label": "Min Risk:Reward"},
+    }
+
     def __init__(self, config: dict):
-        # Daily limits
-        self.max_daily_loss = config.get("max_daily_loss", 500.0)
-        self.max_daily_loss_pct = config.get("max_daily_loss_pct", 2.0)
+        # All risk limits live in a single frozen record. The STRATEGY can never
+        # mutate them (Rule 3) — access is via read-only properties, no setters.
+        # A human operator may replace the whole record via apply_operator_override().
+        self._limits = _RiskLimits(
+            max_daily_loss=config.get("max_daily_loss", 500.0),
+            max_daily_loss_pct=config.get("max_daily_loss_pct", 2.0),
+            max_positions=config.get("max_positions", 5),
+            max_position_pct=config.get("max_position_pct", 20.0),
+            min_cash_reserve_pct=config.get("min_cash_reserve_pct", 10.0),
+            risk_per_trade_pct=config.get("risk_per_trade_pct", 1.0),
+            default_stop_loss_pct=config.get("default_stop_loss_pct", 2.0),
+            default_take_profit_pct=config.get("default_take_profit_pct", 4.0),
+            trailing_stop_activation_pct=config.get("trailing_stop_activation_pct", 2.0),
+            trailing_stop_distance_pct=config.get("trailing_stop_distance_pct", 1.0),
+            max_consecutive_losses=config.get("max_consecutive_losses", 3),
+            pause_duration_minutes=config.get("pause_duration_minutes", 60),
+            min_risk_reward_ratio=config.get("min_risk_reward_ratio", 2.0),
+        )
+        # Immutable snapshot of the config baseline, for reset_operator_override().
+        self._base_limits = self._limits
 
-        # Position limits
-        self.max_positions = config.get("max_positions", 5)
-        self.max_position_pct = config.get("max_position_pct", 20.0)
-        self.min_cash_reserve_pct = config.get("min_cash_reserve_pct", 10.0)
-
-        # Stop loss settings
-        self.default_stop_loss_pct = config.get("default_stop_loss_pct", 2.0)
-        self.default_take_profit_pct = config.get("default_take_profit_pct", 4.0)
-
-        # Trailing stop
-        self.trailing_stop_activation_pct = config.get("trailing_stop_activation_pct", 2.0)
-        self.trailing_stop_distance_pct = config.get("trailing_stop_distance_pct", 1.0)
-
-        # Safety
-        self.max_consecutive_losses = config.get("max_consecutive_losses", 3)
-        self.pause_duration_minutes = config.get("pause_duration_minutes", 60)
-        self.min_risk_reward_ratio = config.get("min_risk_reward_ratio", 2.0)
-
-        # State
+        # State (mutable — these are NOT limits)
         self.stats = TradeStats()
         self.active_positions: dict[str, Position] = {}
         self.is_paused = False
         self.pause_until: Optional[datetime] = None
+
+    # ---- Read-only limit accessors (Rule 3: limits cannot change) ----
+    @property
+    def max_daily_loss(self) -> float: return self._limits.max_daily_loss
+
+    @property
+    def max_daily_loss_pct(self) -> float: return self._limits.max_daily_loss_pct
+
+    @property
+    def max_positions(self) -> int: return self._limits.max_positions
+
+    @property
+    def max_position_pct(self) -> float: return self._limits.max_position_pct
+
+    @property
+    def min_cash_reserve_pct(self) -> float: return self._limits.min_cash_reserve_pct
+
+    @property
+    def default_stop_loss_pct(self) -> float: return self._limits.default_stop_loss_pct
+
+    @property
+    def default_take_profit_pct(self) -> float: return self._limits.default_take_profit_pct
+
+    @property
+    def trailing_stop_activation_pct(self) -> float: return self._limits.trailing_stop_activation_pct
+
+    @property
+    def trailing_stop_distance_pct(self) -> float: return self._limits.trailing_stop_distance_pct
+
+    @property
+    def max_consecutive_losses(self) -> int: return self._limits.max_consecutive_losses
+
+    @property
+    def pause_duration_minutes(self) -> int: return self._limits.pause_duration_minutes
+
+    @property
+    def min_risk_reward_ratio(self) -> float: return self._limits.min_risk_reward_ratio
+
+    @property
+    def max_leverage(self) -> float: return self._limits.max_leverage
+
+    @property
+    def risk_per_trade_pct(self) -> float: return self._limits.risk_per_trade_pct
+
+    # ---- Human-operator overrides (NOT the strategy — see Rule 3) ----
+    def apply_operator_override(self, overrides: dict) -> dict:
+        """
+        Set risk limits at runtime. This is a deliberate HUMAN-OPERATOR action,
+        never called by the trading loop. Every value is validated and CLAMPED
+        to [min, hard-max] from OVERRIDABLE; unknown keys and leverage are
+        ignored. Returns {"applied": {...}, "notes": [...], "limits": {...}}.
+
+        Rule 3 still holds: the strategy cannot reach this path, and even the
+        operator is bounded by the hard ceilings above.
+        """
+        applied: dict = {}
+        notes: list[str] = []
+        for key, spec in self.OVERRIDABLE.items():
+            if key not in overrides or overrides[key] is None or overrides[key] == "":
+                continue
+            raw = overrides[key]
+            try:
+                val = int(raw) if spec["type"] == "int" else float(raw)
+            except (TypeError, ValueError):
+                notes.append(f"{key}: ignored non-numeric value {raw!r}")
+                continue
+            lo, hi = spec["min"], spec["max"]
+            clamped = max(lo, min(hi, val))
+            if clamped != val:
+                notes.append(f"{key}: {val} clamped to {clamped} (allowed {lo}-{hi})")
+            applied[key] = clamped
+
+        if applied:
+            self._limits = replace(self._limits, **applied)
+            logger.critical(
+                "OPERATOR OVERRIDE applied: %s%s",
+                applied, (" | " + "; ".join(notes)) if notes else "",
+            )
+        return {"applied": applied, "notes": notes, "limits": self.get_limits()}
+
+    def reset_operator_override(self) -> dict:
+        """Revert all limits to the config baseline (settings.ini)."""
+        self._limits = self._base_limits
+        logger.warning("OPERATOR OVERRIDE reset — limits restored to config baseline")
+        return self.get_limits()
+
+    def get_limits(self) -> dict:
+        """Current effective limits (config baseline + any operator overrides)."""
+        L = self._limits
+        return {
+            "max_positions": L.max_positions,
+            "max_position_pct": L.max_position_pct,
+            "risk_per_trade_pct": L.risk_per_trade_pct,
+            "max_daily_loss": L.max_daily_loss,
+            "max_daily_loss_pct": L.max_daily_loss_pct,
+            "min_cash_reserve_pct": L.min_cash_reserve_pct,
+            "min_risk_reward_ratio": L.min_risk_reward_ratio,
+            "max_consecutive_losses": L.max_consecutive_losses,
+            "max_leverage": L.max_leverage,
+        }
+
+    def approve_order(self, *, symbol: str, side: str, qty: int, price: float,
+                      stop_price: float, target_price: float,
+                      portfolio_value: float, cash: float,
+                      uncertainty_factor: float) -> tuple[bool, str, int]:
+        """
+        THE single mandatory veto gate (Rule 1). The strategy proposes; this
+        method disposes. Returns (approved, reason, final_qty). A rejection
+        always returns final_qty == 0. All checks are fail-closed.
+        """
+        # Proposed quantity must be sane
+        if qty <= 0:
+            return False, "non-positive proposed qty", 0
+        if price <= 0:
+            return False, "non-positive price", 0
+
+        # Global trading gate (pause, daily loss, consecutive losses, max positions)
+        allowed, reason = self.is_trading_allowed(portfolio_value)
+        if not allowed:
+            return False, reason, 0
+
+        # Never re-enter a symbol we already hold
+        if symbol in self.active_positions:
+            return False, "already holding this symbol", 0
+
+        # Stop must be on the correct, loss-limiting side of entry (protects Rule 4)
+        is_long = side.lower() == "buy"
+        if is_long and not (stop_price < price):
+            return False, f"long stop {stop_price} not below entry {price}", 0
+        if not is_long and not (stop_price > price):
+            return False, f"short stop {stop_price} not above entry {price}", 0
+
+        # Minimum risk/reward
+        rr_ok, rr_ratio = self.check_risk_reward(price, stop_price, target_price)
+        if not rr_ok:
+            return False, f"R:R {rr_ratio:.2f} < {self.min_risk_reward_ratio}", 0
+
+        # Rule 7: uncertainty shrinks size; below the floor it is already 0.
+        if uncertainty_factor <= 0:
+            return False, "uncertainty factor collapsed to zero", 0
+        final_qty = int(qty * uncertainty_factor)
+        if final_qty <= 0:
+            return False, "size rounded to zero after uncertainty scaling", 0
+
+        # Rule 3 (leverage): cash-only, 1x. Notional may never exceed buying
+        # power, and never exceeds the per-position % cap.
+        notional = final_qty * price
+        max_by_leverage = cash * self.max_leverage
+        if notional > max_by_leverage:
+            # Trim to the largest affordable size rather than reject outright.
+            final_qty = int(max_by_leverage / price)
+            if final_qty <= 0:
+                return False, "insufficient buying power for 1 share (no leverage)", 0
+            notional = final_qty * price
+
+        max_position_value = portfolio_value * (self.max_position_pct / 100.0)
+        if notional > max_position_value + 1e-9:
+            final_qty = int(max_position_value / price)
+            if final_qty <= 0:
+                return False, "position cap below 1 share", 0
+
+        return True, f"approved qty={final_qty} (uncert x{uncertainty_factor:.2f})", final_qty
 
     def is_trading_allowed(self, portfolio_value: float) -> tuple[bool, str]:
         """Check if trading is currently allowed"""
@@ -145,7 +343,7 @@ class RiskManager:
             logger.warning("Invalid stop price - equal to or beyond entry price")
             return 0
 
-        risk_amount = portfolio_value * 0.01  # 1% risk per trade
+        risk_amount = portfolio_value * (self.risk_per_trade_pct / 100.0)  # configurable risk per trade
         risk_based_qty = int(risk_amount / risk_per_share)
 
         # Value-based sizing

@@ -162,6 +162,167 @@ async function updateStatus() {
     }
 }
 
+// Open/close the Safety Constitution modal
+function openSafety() {
+    updateSafety();     // refresh live enforcement state
+    loadOverrides();    // populate the override form with current limits
+    document.getElementById('safety-modal').style.display = 'flex';
+}
+function closeSafety() {
+    document.getElementById('safety-modal').style.display = 'none';
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeSafety();
+});
+
+// Update Safety Constitution panel (rules + live enforcement state)
+async function updateSafety() {
+    try {
+        const res = await fetch(API + '/api/safety');
+        if (!res.ok) return;
+        const d = await res.json();
+
+        const tripped = d.kill_switch && d.kill_switch.tripped;
+
+        // Panel kill-switch badge
+        const ksBadge = document.getElementById('killswitch-badge');
+        ksBadge.textContent = tripped ? 'KILL SWITCH: TRIPPED' : 'KILL SWITCH: ARMED';
+        ksBadge.className = 'badge ' + (tripped ? 'badge-red' : 'badge-green');
+
+        // Persistent header badge
+        const headerBadge = document.getElementById('safety-badge');
+        if (headerBadge) {
+            headerBadge.textContent = tripped ? 'HALTED' : 'SAFE';
+            headerBadge.className = 'badge ' + (tripped ? 'badge-red' : 'badge-green');
+        }
+
+        // Reason + halt + paused
+        document.getElementById('killswitch-reason').textContent =
+            tripped ? (d.kill_switch.reason || '') : '';
+        document.getElementById('halt-badge').style.display = d.halt_new_orders ? '' : 'none';
+        document.getElementById('paused-badge').style.display = d.is_paused ? '' : 'none';
+
+        // Reset hint (only shown when tripped — reset is a deliberate human action)
+        const hint = document.getElementById('reset-hint');
+        if (tripped) {
+            hint.style.display = '';
+            hint.textContent = 'To resume: ' + (d.kill_switch.reset_hint || 'remove the kill-switch file by hand.');
+        } else {
+            hint.style.display = 'none';
+        }
+
+        // Locked limits
+        const L = d.limits || {};
+        document.getElementById('lim-leverage').textContent = Number(L.max_leverage).toFixed(0) + 'x';
+        document.getElementById('lim-maxpos').textContent = L.max_positions;
+        document.getElementById('lim-pospct').textContent = Number(L.max_position_pct).toFixed(0) + '%';
+        document.getElementById('lim-risk').textContent = Number(L.risk_per_trade_pct).toFixed(1) + '%';
+        document.getElementById('lim-dailyloss').textContent =
+            fmt(-Math.abs(L.max_daily_loss)) + ' / ' + Number(L.max_daily_loss_pct).toFixed(0) + '%';
+        document.getElementById('lim-minrr').textContent = Number(L.min_risk_reward_ratio).toFixed(1) + ':1';
+
+        // Rules list
+        const list = document.getElementById('rules-list');
+        if (d.rules && d.rules.length) {
+            list.innerHTML = d.rules.map(r => `
+                <li class="rule-item">
+                    <span class="rule-check">✓</span>
+                    <span class="rule-num">${r.n}</span>
+                    <span class="rule-text">${escapeHtml(r.rule)}
+                        <span class="rule-enforced">${escapeHtml(r.enforced_by)}</span>
+                    </span>
+                </li>`).join('');
+        }
+    } catch (err) {
+        console.error('Failed to fetch safety:', err);
+    }
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
+
+// ==================== Operator Overrides ====================
+
+function ovSetVal(id, v) {
+    const el = document.getElementById(id);
+    if (el && v !== null && v !== undefined) el.value = v;
+}
+function ovValOrNull(id) {
+    const v = document.getElementById(id).value.trim();
+    return v === '' ? null : v;
+}
+
+// Populate the override form with the current effective limits
+async function loadOverrides() {
+    try {
+        const res = await fetch(API + '/api/overrides');
+        if (!res.ok) return;
+        const d = await res.json();
+        const c = d.current || {};
+        ovSetVal('ov-maxpos', c.max_positions);
+        ovSetVal('ov-risk', c.risk_per_trade_pct);
+        ovSetVal('ov-pospct', c.max_position_pct);
+        ovSetVal('ov-dailyloss', c.max_daily_loss_pct);
+        ovSetVal('ov-minrr', c.min_risk_reward_ratio);
+    } catch (err) {
+        console.error('Failed to load overrides:', err);
+    }
+}
+
+async function applyOverrides() {
+    const body = {
+        max_positions: ovValOrNull('ov-maxpos'),
+        risk_per_trade_pct: ovValOrNull('ov-risk'),
+        max_position_pct: ovValOrNull('ov-pospct'),
+        max_daily_loss_pct: ovValOrNull('ov-dailyloss'),
+        min_risk_reward_ratio: ovValOrNull('ov-minrr'),
+    };
+    const msg = document.getElementById('ov-msg');
+    try {
+        const res = await fetch(API + '/api/overrides', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await res.json();
+        if (res.ok) {
+            const applied = Object.keys(d.applied || {}).length
+                ? JSON.stringify(d.applied) : 'no changes';
+            const notes = (d.notes && d.notes.length) ? ' — ' + d.notes.join('; ') : '';
+            msg.textContent = 'Applied: ' + applied + notes;
+            msg.style.color = 'var(--accent-green)';
+            updateSafety();
+            loadOverrides();
+        } else {
+            msg.textContent = 'Error: ' + (d.error || 'unknown');
+            msg.style.color = 'var(--accent-red)';
+        }
+    } catch (err) {
+        msg.textContent = 'Error: ' + err.message;
+        msg.style.color = 'var(--accent-red)';
+    }
+}
+
+async function resetOverrides() {
+    if (!confirm('Reset all risk overrides back to the config file baseline?')) return;
+    const msg = document.getElementById('ov-msg');
+    try {
+        const res = await fetch(API + '/api/overrides/reset', { method: 'POST' });
+        if (res.ok) {
+            msg.textContent = 'Reset to config baseline.';
+            msg.style.color = 'var(--text-secondary)';
+            updateSafety();
+            loadOverrides();
+        }
+    } catch (err) {
+        msg.textContent = 'Error: ' + err.message;
+        msg.style.color = 'var(--accent-red)';
+    }
+}
+
 // Update positions table
 async function updatePositions() {
     try {
@@ -625,6 +786,7 @@ document.getElementById('watchlist-input').addEventListener('keypress', function
 // Initial load and auto-refresh
 function refreshAll() {
     updateStatus();
+    updateSafety();
     updatePositions();
     updateOrders();
     updateHistory();

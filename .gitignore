@@ -21,9 +21,16 @@ data/models/*.npz
 
 # Logs & Data
 logs/*.log
+logs/*.log.*
+logs/*.out
 logs/*.csv
+logs/trades/
 data/*.csv
 data/scheduled_trades.json
+
+# Runtime safety state (operator-managed, not source)
+data/KILL_SWITCH.lock
+data/operator_overrides.json
 
 # Keep directories
 !logs/.gitkeep

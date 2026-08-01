@@ -10,6 +10,7 @@
     <header>
         <h1>StockWarren Trading Dashboard</h1>
         <div id="status-bar">
+            <span id="safety-badge" class="badge clickable" title="Click to view the Safety Constitution" onclick="openSafety()">--</span>
             <span id="market-status" class="badge">--</span>
             <span id="mode-badge" class="badge">PAPER</span>
             <span id="bot-status" class="badge">STOPPED</span>
@@ -82,6 +83,7 @@
                 <button id="btn-start" class="btn btn-start" onclick="startBot()">Start Bot</button>
                 <button id="btn-stop" class="btn btn-stop" onclick="stopBot()">Stop Bot</button>
                 <button id="btn-scan" class="btn btn-scan" onclick="runScan()">Scan Market</button>
+                <button id="btn-safety" class="btn btn-safety" onclick="openSafety()">🛡 Safety Rules</button>
                 <button id="btn-emergency" class="btn btn-emergency" onclick="emergencyStop()">EMERGENCY STOP</button>
             </div>
         </section>
@@ -286,6 +288,61 @@
             </table>
         </section>
     </main>
+
+    <!-- Safety Constitution modal (hidden until opened) -->
+    <div id="safety-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeSafety()">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="Safety Constitution">
+            <div class="modal-header">
+                <h2>Safety Constitution <span class="safety-live-dot" title="Live enforcement">●</span></h2>
+                <button class="modal-close" onclick="closeSafety()" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="safety-status">
+                    <span id="killswitch-badge" class="badge">--</span>
+                    <span id="halt-badge" class="badge badge-red" style="display:none;">NEW ORDERS HALTED</span>
+                    <span id="paused-badge" class="badge badge-yellow" style="display:none;">PAUSED</span>
+                    <span class="safety-note" id="killswitch-reason"></span>
+                </div>
+
+                <div class="metrics-grid safety-limits">
+                    <div class="metric"><span class="label">Leverage 🔒</span><span class="value" id="lim-leverage">--</span></div>
+                    <div class="metric"><span class="label">Max Positions 🔒</span><span class="value" id="lim-maxpos">--</span></div>
+                    <div class="metric"><span class="label">Max Position % 🔒</span><span class="value" id="lim-pospct">--</span></div>
+                    <div class="metric"><span class="label">Risk / Trade 🔒</span><span class="value" id="lim-risk">--</span></div>
+                    <div class="metric"><span class="label">Daily Loss Limit 🔒</span><span class="value" id="lim-dailyloss">--</span></div>
+                    <div class="metric"><span class="label">Min R:R 🔒</span><span class="value" id="lim-minrr">--</span></div>
+                </div>
+
+                <ul id="rules-list" class="rules-list">
+                    <li class="rule-item empty">Loading rules…</li>
+                </ul>
+
+                <!-- Operator Overrides: human-set, bounded, audited (does not violate Rule 3) -->
+                <div class="overrides">
+                    <h3>Operator Overrides <span class="safety-note">— human-set &amp; bounded; leverage stays 1×</span></h3>
+                    <div class="form-row">
+                        <div class="form-group"><label>Max Positions</label><input type="number" id="ov-maxpos" min="1" max="20" step="1" placeholder="1–20"></div>
+                        <div class="form-group"><label>Risk % / Trade</label><input type="number" id="ov-risk" min="0.1" max="5" step="0.1" placeholder="0.1–5"></div>
+                        <div class="form-group"><label>Max Position %</label><input type="number" id="ov-pospct" min="1" max="100" step="1" placeholder="1–100"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group"><label>Max Daily Loss %</label><input type="number" id="ov-dailyloss" min="0.5" max="50" step="0.5" placeholder="0.5–50"></div>
+                        <div class="form-group"><label>Min Risk:Reward</label><input type="number" id="ov-minrr" min="1" max="10" step="0.1" placeholder="1–10"></div>
+                        <div class="form-group ov-actions">
+                            <label>&nbsp;</label>
+                            <div class="ov-buttons">
+                                <button class="btn btn-start" onclick="applyOverrides()">Apply</button>
+                                <button class="btn btn-stop" onclick="resetOverrides()">Reset</button>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="safety-note" id="ov-msg"></p>
+                </div>
+
+                <p class="safety-reset-hint" id="reset-hint" style="display:none;"></p>
+            </div>
+        </div>
+    </div>
 
     <footer>
         <p>StockWarren v1.0 | <span id="last-update">--</span></p>
