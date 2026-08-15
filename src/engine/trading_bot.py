@@ -3,6 +3,7 @@ Main Trading Bot Engine for StockWarren
 Orchestrates signals, risk management, and order execution
 """
 
+import os
 import logging
 import time
 from datetime import datetime
@@ -27,10 +28,14 @@ logger = logging.getLogger(__name__)
 class TradingBot:
     """Main trading bot that coordinates all components"""
 
-    def __init__(self, config_path: str = "config/settings.ini"):
+    def __init__(self, config_path: str = "config/settings.ini", *,
+                 api_key: str = None, secret_key: str = None,
+                 strategy: dict = None, name: str = None, account_id: str = "default"):
         self.config = ConfigParser()
         self.config.read(config_path)
         self.running = False
+        self.account_id = account_id
+        self.name = name or account_id
 
         # Parse config sections
         trading_cfg = dict(self.config["trading"])
@@ -38,6 +43,25 @@ class TradingBot:
         risk_cfg = dict(self.config["risk_management"])
         indicator_cfg = dict(self.config["indicators"])
         scanner_cfg = dict(self.config["scanner"])
+        perf_cfg = dict(self.config["performance"]) if self.config.has_section("performance") else {}
+        watchlist_str = self.config.get("watchlist", "symbols", fallback="AAPL,MSFT,GOOGL")
+
+        # ---- Apply this account's strategy overrides on top of the base config ----
+        strategy = dict(strategy or {})
+        self._convert_config_types(strategy)
+        self.ml_enabled = bool(strategy.pop("ml_enabled", True))
+        if "watchlist" in strategy:
+            watchlist_str = str(strategy.pop("watchlist"))
+        if "bar_interval" in strategy:
+            perf_cfg["bar_interval"] = strategy.pop("bar_interval")
+        for k, v in strategy.items():
+            placed = False
+            for d in (signal_cfg, risk_cfg, indicator_cfg, scanner_cfg, trading_cfg):
+                if k in d:
+                    d[k] = v
+                    placed = True
+            if not placed:
+                signal_cfg[k] = v  # default bucket for unknown strategy keys
 
         # Convert numeric config values
         self._convert_config_types(trading_cfg)
@@ -57,48 +81,65 @@ class TradingBot:
             if key in trading_cfg:
                 risk_cfg[key] = trading_cfg[key]
 
-        # Initialize components
-        paper = self.config.get("trading", "mode", fallback="both") != "live_only"
-        self.alpaca = AlpacaClient(paper=True)  # Always start with paper
+        # Initialize components — this account's OWN Alpaca client + risk engine
+        self.alpaca = AlpacaClient(api_key=api_key, secret_key=secret_key, paper=True)
         self.indicators = TechnicalIndicators(indicator_cfg)
-        self.ml_validator = SignalValidator(model_dir="data/models")
-        self.risk_manager = RiskManager(risk_cfg)
-        # Re-apply any human-operator overrides persisted from a previous session
-        # (bounded by RiskManager's hard caps; leverage is never overridden).
+        model_dir = f"data/models/{account_id}"
+        os.makedirs(model_dir, exist_ok=True)
+        self.ml_validator = SignalValidator(model_dir=model_dir)
+        # Correlation groups (optional [correlation_groups] section): one risk
+        # allocation per correlated group.
+        correlation_groups = (dict(self.config["correlation_groups"])
+                              if self.config.has_section("correlation_groups") else {})
+        self.risk_manager = RiskManager(risk_cfg, correlation_groups=correlation_groups)
+        # Per-account persisted operator overrides
+        self.overrides_path = f"data/operator_overrides_{account_id}.json"
         from src.utils.overrides import load_overrides
-        persisted_overrides = load_overrides()
+        persisted_overrides = load_overrides(self.overrides_path)
         if persisted_overrides:
             result = self.risk_manager.apply_operator_override(persisted_overrides)
-            logger.info("Re-applied persisted operator overrides: %s", result.get("applied"))
+            logger.info("[%s] Re-applied persisted operator overrides: %s", self.name, result.get("applied"))
         self.scanner = StockScanner(self.alpaca, scanner_cfg)
-        self.watchlist = WatchlistManager(
-            self.config.get("watchlist", "symbols", fallback="AAPL,MSFT,GOOGL")
-        )
+        # Config seeds a brand-new account; once this account's watchlist has been
+        # edited from the dashboard, the saved list wins. Without this, every
+        # restart silently discarded any curation. An empty saved list is a real
+        # state, so the check is `is not None`, not truthiness.
+        from src.utils.watchlist_store import load_watchlist
+        saved_watchlist = load_watchlist(account_id)
+        if saved_watchlist is not None:
+            self.watchlist = WatchlistManager("")
+            self.watchlist.set_symbols(saved_watchlist)
+            logger.info("[%s] Restored saved watchlist (%d symbols).", self.name, len(saved_watchlist))
+        else:
+            self.watchlist = WatchlistManager(watchlist_str)
 
         # Settings
         self.min_signal_strength = signal_cfg.get("min_signal_strength", 65)
         self.min_confirmations = signal_cfg.get("min_confirmations", 2)
-        self.bar_interval = self.config.get("performance", "bar_interval", fallback="5")
+        self.bar_interval = str(perf_cfg.get("bar_interval", "5"))
         try:
             self.bar_interval_min = int(self.bar_interval)
         except (TypeError, ValueError):
             self.bar_interval_min = 5
         self.market_hours_only = trading_cfg.get("market_hours_only", True)
 
-        # Safety layer (Rule 4: kill switch the bot can trip but not reset)
-        self.kill_switch = KillSwitch()
+        # Per-account safety kill switch (isolated so one account's shutdown
+        # never halts another).
+        self.kill_switch = KillSwitch(path=f"data/KILL_SWITCH_{account_id}.lock")
         self._halt_new_orders = False  # per-tick latch, set by Rule 6 breaches
+        self.last_tick_at = None       # None => no tick has run this session
 
         # Trade log
         self.trade_log = []
 
         if self.kill_switch.is_tripped():
             logger.critical(
-                "KILL SWITCH is engaged at startup: %s. No new orders will be placed. %s",
-                self.kill_switch.reason(), KillSwitch.manual_reset_instructions()
+                "[%s] KILL SWITCH engaged at startup: %s. %s",
+                self.name, self.kill_switch.reason(),
+                KillSwitch.manual_reset_instructions(self.kill_switch.path),
             )
 
-        logger.info("StockWarren Trading Bot initialized")
+        logger.info("Trading bot initialized [account=%s, ml=%s]", self.name, self.ml_enabled)
 
     def start(self):
         """Start the trading bot main loop"""
@@ -130,6 +171,11 @@ class TradingBot:
 
     def _tick(self):
         """Execute one iteration of the trading loop"""
+        # Stamped first so the dashboard can say how stale its figures are. The
+        # risk stats it reads only move when a tick runs, so "SAFE" on a bot that
+        # last ticked an hour ago means something different from "SAFE" now.
+        self.last_tick_at = datetime.now()
+
         # Reset the per-tick "no new orders" latch (Rule 6).
         self._halt_new_orders = False
 
@@ -156,6 +202,9 @@ class TradingBot:
         allowed, reason = self.risk_manager.is_trading_allowed(portfolio_value)
         if not allowed:
             logger.info(f"Trading not allowed: {reason}")
+            # Full-shutdown drawdown breach engages the kill switch (Rule 4).
+            if self.risk_manager.shutdown_triggered:
+                self.kill_switch.trip(f"Drawdown shutdown: {reason}")
             # Still update trailing stops for existing positions
             self._update_positions()
             return
@@ -194,13 +243,15 @@ class TradingBot:
         if composite.confirmations < self.min_confirmations:
             return
 
-        # ML validation (if trained)
-        ml_result = self.ml_validator.validate_signal(df, composite)
-        if self.ml_validator.is_trained and not ml_result.approved:
-            logger.debug(
-                f"[{symbol}] Signal rejected by ML (confidence: {ml_result.confidence:.1f}%)"
-            )
-            return
+        # ML validation (only if this strategy enables it)
+        ml_result = None
+        if self.ml_enabled:
+            ml_result = self.ml_validator.validate_signal(df, composite)
+            if self.ml_validator.is_trained and not ml_result.approved:
+                logger.debug(
+                    f"[{symbol}] Signal rejected by ML (confidence: {ml_result.confidence:.1f}%)"
+                )
+                return
 
         # Determine trade direction
         is_long = composite.direction == 1
@@ -229,7 +280,7 @@ class TradingBot:
             rr_ratio=rr_ratio,
             min_rr_ratio=self.risk_manager.min_risk_reward_ratio,
             ml_confidence=ml_result.confidence if ml_result else None,
-            ml_trained=self.ml_validator.is_trained,
+            ml_trained=self.ml_enabled and self.ml_validator.is_trained,
         )
         if uncertainty_factor <= 0:
             logger.debug(f"[{symbol}] NO TRADE — signal too uncertain to size")
@@ -401,11 +452,12 @@ class TradingBot:
                     self.alpaca.close_position(symbol)
                     pnl = self.risk_manager.close_position(symbol, current_price)
 
-                    # Train ML with outcome
-                    df = self.alpaca.get_bars(symbol, limit=200)
-                    if df is not None:
-                        composite = self.indicators.analyze(df)
-                        self.ml_validator.add_training_sample(df, composite, pnl > 0)
+                    # Train ML with outcome (only if this strategy uses ML)
+                    if self.ml_enabled:
+                        df = self.alpaca.get_bars(symbol, limit=200)
+                        if df is not None:
+                            composite = self.indicators.analyze(df)
+                            self.ml_validator.add_training_sample(df, composite, pnl > 0)
 
                     self._notify_close(symbol, current_price, pnl, "target")
                 except Exception as e:
@@ -428,13 +480,21 @@ class TradingBot:
             account = {"portfolio_value": 0, "cash": 0, "equity": 0}
 
         return {
+            "name": self.name,
+            "account_id": self.account_id,
+            "ml_enabled": self.ml_enabled,
             "running": self.running,
             "paper_mode": self.alpaca.paper,
             "account": account,
             "stats": self.risk_manager.get_stats(),
             "active_positions": len(self.risk_manager.active_positions),
             "watchlist": self.watchlist.get_symbols(),
-            "market_open": self.alpaca.is_market_open() if self.running else False,
+            "last_tick": self.last_tick_at.isoformat() if self.last_tick_at else None,
+            # `market_open` removed deliberately: market state is a property of the
+            # exchange, not of this process. Gating it on self.running made the
+            # header claim MARKET CLOSED at 10am whenever the bot was stopped,
+            # right beside a countdown saying the market closed in two hours.
+            # The dashboard reads GET /api/market (the exchange clock) instead.
         }
 
     def _log_trade(self, trade: dict):
