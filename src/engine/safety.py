@@ -103,6 +103,127 @@ class OrderCheck:
     classification: str  # "ok" | "rejected" | "unrecognized"
 
 
+# ==================== Trading gate (PURE — no side effects) ====================
+#
+# WHY THIS EXISTS
+# RiskManager.is_trading_allowed() is not a query. It expires pauses, rolls the
+# daily/weekly stats, MOVES THE PEAK-EQUITY BASELINE that every drawdown number
+# is measured from, sets the shutdown_triggered flag the bot reads to trip the
+# kill switch, and can start a pause. It is called from the tick loop and must
+# only ever be called from there.
+#
+# The dashboard polls every 5 seconds. Calling is_trading_allowed() from a status
+# endpoint would corrupt the drawdown baseline, zero the daily stats, end a pause
+# early and could trip the kill switch — because someone left a browser tab open.
+#
+# So the RULES live here, as a function of an immutable snapshot, and
+# is_trading_allowed() performs its mutations and then delegates to this.
+# One rule table, two callers, no drift.
+
+# Machine keys. EVERY reason the engine can refuse a new position needs one, a
+# GATE_STATE entry below, and matching copy in gui/static/js/dashboard.js.
+# tests/test_trading_gate.py enforces all three.
+GATE_OK = "ok"
+GATE_PAUSED = "paused"
+GATE_DRAWDOWN_SHUTDOWN = "drawdown_shutdown"
+GATE_DAILY_LOSS = "daily_loss"
+GATE_DAILY_LOSS_PCT = "daily_loss_pct"
+GATE_WEEKLY_LOSS_PCT = "weekly_loss_pct"
+GATE_CONSECUTIVE_LOSSES = "consecutive_losses"
+GATE_MAX_POSITIONS = "max_positions"
+
+# Blocker -> dashboard badge state. Severity, not chronology: a position limit
+# is healthy saturation, a consecutive-loss breach is a cool-off, a loss limit
+# or drawdown breach is a genuine stop.
+GATE_STATE = {
+    GATE_OK: "SAFE",
+    GATE_PAUSED: "PAUSED",
+    GATE_CONSECUTIVE_LOSSES: "PAUSED",
+    GATE_MAX_POSITIONS: "FULL",
+    GATE_DRAWDOWN_SHUTDOWN: "BLOCKED",
+    GATE_DAILY_LOSS: "BLOCKED",
+    GATE_DAILY_LOSS_PCT: "BLOCKED",
+    GATE_WEEKLY_LOSS_PCT: "BLOCKED",
+}
+
+
+@dataclass(frozen=True)
+class GateSnapshot:
+    """An immutable copy of everything the gate rules read.
+
+    Taking a snapshot rather than a RiskManager reference is the point: the
+    evaluator physically cannot mutate engine state.
+    """
+    portfolio_value: float
+    is_paused: bool
+    pause_until: Optional[datetime]
+    now: datetime
+    daily_pnl: float
+    weekly_pnl: float
+    consecutive_losses: int
+    active_positions: int
+    drawdown_pct: float
+    max_daily_loss: float
+    max_daily_loss_pct: float
+    max_weekly_loss_pct: float
+    max_consecutive_losses: int
+    max_positions: int
+    shutdown_drawdown_pct: float
+
+
+@dataclass(frozen=True)
+class GateVerdict:
+    allowed: bool
+    code: str      # one of the GATE_* constants
+    reason: str    # human-readable, for logs and tooltips
+
+
+def evaluate_trading_gate(s: GateSnapshot) -> GateVerdict:
+    """Decide whether a NEW position may be opened. Pure: reads `s`, mutates nothing.
+
+    Mirror of the conditions in RiskManager.is_trading_allowed(), which calls this
+    for its verdict after performing its own state updates. Change the rules HERE
+    only — that keeps the engine and the dashboard incapable of disagreeing.
+
+    Note on drawdown: this reads the ALREADY-COMPUTED s.drawdown_pct. It does not
+    recompute it from portfolio_value, because doing so would require the peak,
+    and moving the peak is exactly the side effect this function must not have.
+    """
+    if s.is_paused and s.pause_until is not None and s.now < s.pause_until:
+        return GateVerdict(False, GATE_PAUSED,
+                           f"Trading paused until {s.pause_until.strftime('%H:%M')}")
+
+    if s.portfolio_value > 0 and s.drawdown_pct >= s.shutdown_drawdown_pct:
+        return GateVerdict(False, GATE_DRAWDOWN_SHUTDOWN,
+                           f"FULL SHUTDOWN: drawdown {s.drawdown_pct:.1f}% >= {s.shutdown_drawdown_pct}%")
+
+    if s.daily_pnl <= -s.max_daily_loss:
+        return GateVerdict(False, GATE_DAILY_LOSS,
+                           f"Daily loss limit reached: ${s.daily_pnl:.2f}")
+
+    if s.portfolio_value > 0:
+        daily_loss_pct = (abs(s.daily_pnl) / s.portfolio_value) * 100
+        if s.daily_pnl < 0 and daily_loss_pct >= s.max_daily_loss_pct:
+            return GateVerdict(False, GATE_DAILY_LOSS_PCT,
+                               f"Daily loss % limit reached: {daily_loss_pct:.1f}%")
+
+    if s.portfolio_value > 0:
+        weekly_loss_pct = (abs(s.weekly_pnl) / s.portfolio_value) * 100
+        if s.weekly_pnl < 0 and weekly_loss_pct >= s.max_weekly_loss_pct:
+            return GateVerdict(False, GATE_WEEKLY_LOSS_PCT,
+                               f"Weekly loss % limit reached: {weekly_loss_pct:.1f}%")
+
+    if s.consecutive_losses >= s.max_consecutive_losses:
+        return GateVerdict(False, GATE_CONSECUTIVE_LOSSES,
+                           f"Max consecutive losses ({s.max_consecutive_losses}) reached")
+
+    if s.active_positions >= s.max_positions:
+        return GateVerdict(False, GATE_MAX_POSITIONS,
+                           f"Max positions ({s.max_positions}) reached")
+
+    return GateVerdict(True, GATE_OK, "Trading allowed")
+
+
 # ==================== Rule 5: market data validation ====================
 
 def validate_market_data(

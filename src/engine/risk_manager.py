@@ -9,7 +9,13 @@ from datetime import datetime, date
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
-from src.engine.safety import MAX_LEVERAGE
+from src.engine.safety import (
+    MAX_LEVERAGE,
+    GATE_CONSECUTIVE_LOSSES,
+    GateSnapshot,
+    GateVerdict,
+    evaluate_trading_gate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,11 @@ class _RiskLimits:
     max_consecutive_losses: int
     pause_duration_minutes: int
     min_risk_reward_ratio: float
+    max_risk_per_trade_pct: float          # hard ceiling on a single trade's risk
+    max_combined_open_risk_pct: float      # cap on summed risk across open positions
+    max_weekly_loss_pct: float             # halt for the week past this loss
+    review_drawdown_pct: float             # flag for strategy review at this drawdown
+    shutdown_drawdown_pct: float           # trip the kill switch at this drawdown
     max_leverage: float = MAX_LEVERAGE
 
 
@@ -50,6 +61,9 @@ class TradeStats:
     peak_equity: float = 0.0
     consecutive_losses: int = 0
     trading_day: date = field(default_factory=date.today)
+    weekly_pnl: float = 0.0
+    trading_week: tuple = field(default_factory=lambda: tuple(date.today().isocalendar()[:2]))
+    peak_portfolio_value: float = 0.0
 
     @property
     def win_rate(self) -> float:
@@ -90,14 +104,20 @@ class RiskManager:
     # a code change (defense in depth). Leverage is deliberately absent — it is
     # NEVER overridable and stays MAX_LEVERAGE (Rule 3).
     OVERRIDABLE = {
-        "max_positions":         {"type": "int",   "min": 1,   "max": 20,   "label": "Max Positions"},
-        "max_position_pct":      {"type": "float", "min": 1.0, "max": 100.0, "label": "Max Position % of Portfolio"},
-        "risk_per_trade_pct":    {"type": "float", "min": 0.1, "max": 5.0,  "label": "Risk Tolerance % per Trade"},
-        "max_daily_loss_pct":    {"type": "float", "min": 0.5, "max": 50.0, "label": "Max Daily Loss %"},
-        "min_risk_reward_ratio": {"type": "float", "min": 1.0, "max": 10.0, "label": "Min Risk:Reward"},
+        "max_positions":              {"type": "int",   "min": 1,    "max": 20,      "label": "Max Positions"},
+        "max_position_pct":           {"type": "float", "min": 1.0,  "max": 100.0,   "label": "Max Position % of Portfolio"},
+        "risk_per_trade_pct":         {"type": "float", "min": 0.05, "max": 5.0,     "label": "Risk per Trade %"},
+        "max_risk_per_trade_pct":     {"type": "float", "min": 0.1,  "max": 5.0,     "label": "Max Risk per Trade %"},
+        "max_combined_open_risk_pct": {"type": "float", "min": 0.25, "max": 20.0,    "label": "Max Combined Open Risk %"},
+        "max_daily_loss":             {"type": "float", "min": 1.0,  "max": 100000.0, "label": "Max Daily Loss $"},
+        "max_daily_loss_pct":         {"type": "float", "min": 0.5,  "max": 50.0,    "label": "Daily Loss Limit %"},
+        "max_weekly_loss_pct":        {"type": "float", "min": 0.5,  "max": 50.0,    "label": "Weekly Loss Limit %"},
+        "review_drawdown_pct":        {"type": "float", "min": 1.0,  "max": 50.0,    "label": "Strategy Review Drawdown %"},
+        "shutdown_drawdown_pct":      {"type": "float", "min": 1.0,  "max": 50.0,    "label": "Full Shutdown Drawdown %"},
+        "min_risk_reward_ratio":      {"type": "float", "min": 1.0,  "max": 10.0,    "label": "Min Risk:Reward"},
     }
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, correlation_groups: dict = None):
         # All risk limits live in a single frozen record. The STRATEGY can never
         # mutate them (Rule 3) — access is via read-only properties, no setters.
         # A human operator may replace the whole record via apply_operator_override().
@@ -115,15 +135,33 @@ class RiskManager:
             max_consecutive_losses=config.get("max_consecutive_losses", 3),
             pause_duration_minutes=config.get("pause_duration_minutes", 60),
             min_risk_reward_ratio=config.get("min_risk_reward_ratio", 2.0),
+            max_risk_per_trade_pct=config.get("max_risk_per_trade_pct", 0.50),
+            max_combined_open_risk_pct=config.get("max_combined_open_risk_pct", 1.0),
+            max_weekly_loss_pct=config.get("max_weekly_loss_pct", 3.0),
+            review_drawdown_pct=config.get("review_drawdown_pct", 5.0),
+            shutdown_drawdown_pct=config.get("shutdown_drawdown_pct", 8.0),
         )
         # Immutable snapshot of the config baseline, for reset_operator_override().
         self._base_limits = self._limits
+
+        # Correlation groups: symbol -> group name (ungrouped symbols are their
+        # own group). "One risk allocation per correlated group."
+        self._corr_map: dict[str, str] = {}
+        for group, syms in (correlation_groups or {}).items():
+            if isinstance(syms, str):
+                syms = [s.strip() for s in syms.split(",") if s.strip()]
+            for s in syms:
+                self._corr_map[s.upper()] = group
 
         # State (mutable — these are NOT limits)
         self.stats = TradeStats()
         self.active_positions: dict[str, Position] = {}
         self.is_paused = False
         self.pause_until: Optional[datetime] = None
+        # Drawdown state (updated by is_trading_allowed)
+        self.drawdown_pct = 0.0
+        self.review_flagged = False      # >= review_drawdown_pct
+        self.shutdown_triggered = False  # >= shutdown_drawdown_pct (bot trips kill switch)
 
     # ---- Read-only limit accessors (Rule 3: limits cannot change) ----
     @property
@@ -167,6 +205,30 @@ class RiskManager:
 
     @property
     def risk_per_trade_pct(self) -> float: return self._limits.risk_per_trade_pct
+
+    @property
+    def max_risk_per_trade_pct(self) -> float: return self._limits.max_risk_per_trade_pct
+
+    @property
+    def max_combined_open_risk_pct(self) -> float: return self._limits.max_combined_open_risk_pct
+
+    @property
+    def max_weekly_loss_pct(self) -> float: return self._limits.max_weekly_loss_pct
+
+    @property
+    def review_drawdown_pct(self) -> float: return self._limits.review_drawdown_pct
+
+    @property
+    def shutdown_drawdown_pct(self) -> float: return self._limits.shutdown_drawdown_pct
+
+    def open_risk_amount(self) -> float:
+        """Total $ at risk across open positions = sum(|entry - stop| * qty)."""
+        return sum(abs(p.entry_price - p.stop_price) * p.qty
+                   for p in self.active_positions.values())
+
+    def correlation_group(self, symbol: str) -> str:
+        """Correlation group for a symbol (its own symbol if ungrouped)."""
+        return self._corr_map.get(symbol.upper(), symbol.upper())
 
     # ---- Human-operator overrides (NOT the strategy — see Rule 3) ----
     def apply_operator_override(self, overrides: dict) -> dict:
@@ -217,8 +279,13 @@ class RiskManager:
             "max_positions": L.max_positions,
             "max_position_pct": L.max_position_pct,
             "risk_per_trade_pct": L.risk_per_trade_pct,
+            "max_risk_per_trade_pct": L.max_risk_per_trade_pct,
+            "max_combined_open_risk_pct": L.max_combined_open_risk_pct,
             "max_daily_loss": L.max_daily_loss,
             "max_daily_loss_pct": L.max_daily_loss_pct,
+            "max_weekly_loss_pct": L.max_weekly_loss_pct,
+            "review_drawdown_pct": L.review_drawdown_pct,
+            "shutdown_drawdown_pct": L.shutdown_drawdown_pct,
             "min_cash_reserve_pct": L.min_cash_reserve_pct,
             "min_risk_reward_ratio": L.min_risk_reward_ratio,
             "max_consecutive_losses": L.max_consecutive_losses,
@@ -248,6 +315,12 @@ class RiskManager:
         # Never re-enter a symbol we already hold
         if symbol in self.active_positions:
             return False, "already holding this symbol", 0
+
+        # Correlation: at most one risk allocation per correlated group
+        new_group = self.correlation_group(symbol)
+        for held in self.active_positions:
+            if self.correlation_group(held) == new_group:
+                return False, f"correlated position already open in '{new_group}' ({held})", 0
 
         # Stop must be on the correct, loss-limiting side of entry (protects Rule 4)
         is_long = side.lower() == "buy"
@@ -285,10 +358,74 @@ class RiskManager:
             if final_qty <= 0:
                 return False, "position cap below 1 share", 0
 
+        # ---- Risk-based ceilings (trim or reject) ----
+        risk_per_share = abs(price - stop_price)
+
+        # Max risk per trade: a single trade's $risk may never exceed the cap.
+        max_trade_risk = portfolio_value * (self.max_risk_per_trade_pct / 100.0)
+        if risk_per_share * final_qty > max_trade_risk + 1e-9:
+            final_qty = int(max_trade_risk / risk_per_share)
+            if final_qty <= 0:
+                return False, f"1 share risks more than max per-trade risk ({self.max_risk_per_trade_pct}%)", 0
+
+        # Max combined open risk: summed risk of all open positions + this trade.
+        combined_cap = portfolio_value * (self.max_combined_open_risk_pct / 100.0)
+        room = combined_cap - self.open_risk_amount()
+        if room <= 1e-9:
+            return False, f"combined open-risk limit ({self.max_combined_open_risk_pct}%) reached", 0
+        if risk_per_share * final_qty > room + 1e-9:
+            final_qty = int(room / risk_per_share)
+            if final_qty <= 0:
+                return False, "no room under combined open-risk limit for 1 share", 0
+
         return True, f"approved qty={final_qty} (uncert x{uncertainty_factor:.2f})", final_qty
 
+    def gate_snapshot(self, portfolio_value: float) -> GateSnapshot:
+        """Immutable copy of everything the gate rules read. Pure — no mutation.
+
+        Safe to call from anywhere, including request handlers. Contrast with
+        is_trading_allowed(), which is tick-loop-only because it mutates.
+        """
+        return GateSnapshot(
+            portfolio_value=portfolio_value,
+            is_paused=self.is_paused,
+            pause_until=self.pause_until,
+            now=datetime.now(),
+            daily_pnl=self.stats.daily_pnl,
+            weekly_pnl=self.stats.weekly_pnl,
+            consecutive_losses=self.stats.consecutive_losses,
+            active_positions=len(self.active_positions),
+            drawdown_pct=self.drawdown_pct,
+            max_daily_loss=self.max_daily_loss,
+            max_daily_loss_pct=self.max_daily_loss_pct,
+            max_weekly_loss_pct=self.max_weekly_loss_pct,
+            max_consecutive_losses=self.max_consecutive_losses,
+            max_positions=self.max_positions,
+            shutdown_drawdown_pct=self.shutdown_drawdown_pct,
+        )
+
+    def evaluate_gate(self, portfolio_value: float) -> GateVerdict:
+        """Would a new position be allowed right now? PURE — mutates nothing.
+
+        This is what the dashboard calls. is_trading_allowed() is NOT safe to call
+        from a request handler; see the comment on that method.
+        """
+        return evaluate_trading_gate(self.gate_snapshot(portfolio_value))
+
     def is_trading_allowed(self, portfolio_value: float) -> tuple[bool, str]:
-        """Check if trading is currently allowed"""
+        """Tick-loop entry point: update time-based state, then decide.
+
+        WARNING — THIS MUTATES. It expires pauses, rolls the daily/weekly stats,
+        moves the peak-equity baseline that drawdown is measured from, sets
+        shutdown_triggered (which the bot reads to trip the kill switch), and can
+        start a pause. Call it ONLY from the tick loop. Anything that merely wants
+        to know the answer — dashboards, status endpoints — must call
+        evaluate_gate(), which is pure.
+
+        The rules themselves live in safety.evaluate_trading_gate(); this method
+        does the state updates and then delegates the verdict, so the engine and
+        the dashboard cannot disagree about what "blocked" means.
+        """
         # Check pause
         if self.is_paused:
             if self.pause_until and datetime.now() < self.pause_until:
@@ -297,29 +434,39 @@ class RiskManager:
                 self.is_paused = False
                 logger.info("Trading pause ended")
 
-        # Reset daily stats if new day
+        # Reset daily / weekly stats on new day / week
         self._check_daily_reset()
+        self._check_weekly_reset()
 
-        # Check daily loss limit (absolute)
-        if self.stats.daily_pnl <= -self.max_daily_loss:
-            return False, f"Daily loss limit reached: ${self.stats.daily_pnl:.2f}"
-
-        # Check daily loss limit (percentage)
+        # Drawdown thresholds (peak-to-current on portfolio equity)
         if portfolio_value > 0:
-            daily_loss_pct = (abs(self.stats.daily_pnl) / portfolio_value) * 100
-            if self.stats.daily_pnl < 0 and daily_loss_pct >= self.max_daily_loss_pct:
-                return False, f"Daily loss % limit reached: {daily_loss_pct:.1f}%"
+            if portfolio_value > self.stats.peak_portfolio_value:
+                self.stats.peak_portfolio_value = portfolio_value
+            peak = self.stats.peak_portfolio_value
+            self.drawdown_pct = ((peak - portfolio_value) / peak * 100) if peak > 0 else 0.0
 
-        # Check consecutive losses
-        if self.stats.consecutive_losses >= self.max_consecutive_losses:
+            # Full shutdown: hardest stop — bot trips the kill switch on this flag.
+            self.shutdown_triggered = self.drawdown_pct >= self.shutdown_drawdown_pct
+
+            # Strategy review: warn but keep trading (surfaced in the UI).
+            # Evaluated before the verdict because it is a warning tier, not a stop.
+            if self.drawdown_pct >= self.review_drawdown_pct:
+                if not self.review_flagged:
+                    logger.warning("STRATEGY REVIEW: drawdown %.1f%% >= %.1f%% threshold",
+                                   self.drawdown_pct, self.review_drawdown_pct)
+                self.review_flagged = True
+            else:
+                self.review_flagged = False
+
+        # Single source of the rules — see safety.evaluate_trading_gate().
+        verdict = evaluate_trading_gate(self.gate_snapshot(portfolio_value))
+
+        # Breaching the consecutive-loss limit STARTS the cool-off. That is a state
+        # change, so it stays here rather than in the pure evaluator.
+        if verdict.code == GATE_CONSECUTIVE_LOSSES and not self.is_paused:
             self._pause_trading()
-            return False, f"Max consecutive losses ({self.max_consecutive_losses}) reached"
 
-        # Check position limit
-        if len(self.active_positions) >= self.max_positions:
-            return False, f"Max positions ({self.max_positions}) reached"
-
-        return True, "Trading allowed"
+        return verdict.allowed, verdict.reason
 
     def calculate_position_size(self, symbol: str, price: float,
                                  stop_price: float, portfolio_value: float,
@@ -497,10 +644,15 @@ class RiskManager:
             "win_rate": self.stats.win_rate,
             "total_pnl": self.stats.total_pnl,
             "daily_pnl": self.stats.daily_pnl,
+            "weekly_pnl": self.stats.weekly_pnl,
             "max_drawdown": self.stats.max_drawdown,
+            "drawdown_pct": round(self.drawdown_pct, 2),
             "consecutive_losses": self.stats.consecutive_losses,
             "active_positions": len(self.active_positions),
+            "open_risk_amount": round(self.open_risk_amount(), 2),
             "is_paused": self.is_paused,
+            "review_flagged": self.review_flagged,
+            "shutdown_triggered": self.shutdown_triggered,
         }
 
     def _record_trade(self, pnl: float):
@@ -508,6 +660,7 @@ class RiskManager:
         self.stats.total_trades += 1
         self.stats.total_pnl += pnl
         self.stats.daily_pnl += pnl
+        self.stats.weekly_pnl += pnl
 
         if pnl > 0:
             self.stats.winning_trades += 1
@@ -543,3 +696,11 @@ class RiskManager:
             self.stats.trading_day = today
             self.is_paused = False
             self.pause_until = None
+
+    def _check_weekly_reset(self):
+        """Reset weekly P&L at the start of a new ISO week"""
+        week = tuple(date.today().isocalendar()[:2])
+        if self.stats.trading_week != week:
+            logger.info(f"New trading week: {week}. Resetting weekly P&L.")
+            self.stats.weekly_pnl = 0.0
+            self.stats.trading_week = week
