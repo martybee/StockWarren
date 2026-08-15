@@ -28,9 +28,17 @@ logs/trades/
 data/*.csv
 data/scheduled_trades.json
 
-# Runtime safety state (operator-managed, not source)
-data/KILL_SWITCH.lock
-data/operator_overrides.json
+# Runtime safety state (operator-managed, not source) — per account too
+data/KILL_SWITCH*.lock
+data/operator_overrides*.json
+data/models/
+
+# Per-account user state and fetched caches — runtime, not source.
+# Watchlists are seeded from [watchlist] in settings.ini and then owned by the
+# user; company profiles are a rebuildable yfinance cache.
+data/watchlist_*.json
+data/company_profiles.json
+data/decisions_*.jsonl*
 
 # Keep directories
 !logs/.gitkeep
