@@ -106,6 +106,21 @@ user approval.
 trips it. To resume, a human removes `data/KILL_SWITCH.lock` by hand — there is no
 programmatic reset, by design.
 
+**Risk framework (conservative starting limits, `[risk_management]`):** the engine
+enforces a layered risk model, all as % of account equity:
+- `risk_per_trade_pct` (0.25) sizes each trade; `max_risk_per_trade_pct` (0.50) is a
+  hard ceiling per trade; `max_combined_open_risk_pct` (1.0) caps summed open risk —
+  all enforced in `RiskManager.approve_order()` (trim-or-reject).
+- `max_daily_loss_pct` (1.5) and `max_weekly_loss_pct` (3.0) halt trading for the
+  day/week; checked in `is_trading_allowed()`.
+- `review_drawdown_pct` (5.0) flags the strategy for review (warns, keeps trading);
+  `shutdown_drawdown_pct` (8.0) trips the kill switch (full shutdown), driven off
+  peak-to-current portfolio equity.
+- **Correlation** (`[correlation_groups]`): one position per correlated group
+  (e.g. `ev_auto = F,NIO,RIVN`); enforced in `approve_order()`.
+- Note: 0.25% risk on a ~$300 paper account is ~$0.75/trade, which frequently sizes
+  to **0 shares / no trade** — the math is correct; the account is just small.
+
 **Operator overrides (human-only risk tuning):** risk limits are configured in
 `config/settings.ini`, but `[trading]` position/cash limits are forwarded into the
 `RiskManager` in `trading_bot.py` (they would otherwise be ignored — the engine only
