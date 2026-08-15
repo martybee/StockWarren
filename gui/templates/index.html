@@ -5,348 +5,568 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockWarren Dashboard</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+        // Runs before first paint, on purpose: if the saved theme were applied
+        // from dashboard.js instead, every load would flash the default palette
+        // before switching. Kept inline and dependency-free for the same reason.
+        (function () {
+            try {
+                var t = localStorage.getItem('sw_theme');
+                if (t) document.documentElement.setAttribute('data-theme', t);
+            } catch (e) {}
+            // Same reason, bigger flash: a pinned rail is 288px and shifts the
+            // page content 226px across. Applying this from dashboard.js (the
+            // last element in <body>) would paint the whole layout at the 62px
+            // offset and snap it sideways a frame later.
+            // A CLASS, not an inline custom property: an inline property would
+            // beat every stylesheet rule, and the min-width:1100px block that
+            // folds the rail back to icons could not override it without
+            // !important. Separate try block so a private-mode throw on the
+            // theme read above cannot skip this one.
+            try {
+                if (localStorage.getItem('sw_rail_pinned') === '1')
+                    document.documentElement.classList.add('rail-pinned');
+            } catch (e) {}
+        })();
+    </script>
 </head>
 <body>
     <header>
-        <h1>StockWarren Trading Dashboard</h1>
+        <div class="header-left">
+            <h1>StockWarren Trading Dashboard</h1>
+        </div>
         <div id="status-bar">
-            <span id="safety-badge" class="badge clickable" title="Click to view the Safety Constitution" onclick="openSafety()">--</span>
-            <span id="market-status" class="badge">--</span>
+            <select id="account-switcher" class="account-switcher" onchange="selectAccount(this.value)" title="Switch account"></select>
+            <!-- Live figures for the selected account, sat next to the switcher so
+                 the numbers and the control that changes them read as one unit.
+                 Always on screen (every page, not just Overview) and refreshed by
+                 updateStatus() on the 5s poll — the switch toast is only a
+                 confirmation, this is the thing you actually read. -->
+            <div class="account-stats acct-flash-target" id="account-stats">
+                <span class="astat"><span class="astat-label">Portfolio</span><span class="astat-value" id="hdr-portfolio">--</span></span>
+                <span class="astat"><span class="astat-label">Cash</span><span class="astat-value" id="hdr-cash">--</span></span>
+                <span class="astat"><span class="astat-label">Positions</span><span class="astat-value" id="hdr-positions">--</span></span>
+                <span class="astat"><span class="astat-label">Day P&amp;L</span><span class="astat-value" id="hdr-daypnl">--</span></span>
+            </div>
+            <div class="theme-picker">
+                <button id="theme-btn" class="theme-btn" type="button" aria-haspopup="true"
+                        aria-expanded="false" title="Change theme" onclick="toggleThemeMenu(event)">
+                    <!-- No data-theme here: the button inherits the active theme, so
+                         this swatch always previews whatever is currently applied. -->
+                    <span class="theme-swatch" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                    <span id="theme-btn-label">Theme</span>
+                </button>
+                <ul id="theme-menu" class="theme-menu" role="menu" aria-labelledby="theme-btn"></ul>
+            </div>
+            <span id="safety-badge" class="badge clickable" title="Open the Safety section" onclick="navigate('safety')">--</span>
+            <!-- Market state and the countdown to the next session boundary, in one
+                 element. They used to be a badge here plus a separate countdown
+                 beside the title, driven by two different clocks — so a stopped bot
+                 showed "MARKET CLOSED" next to "02:13:44 until market closes". -->
+            <span id="market-badge" class="badge badge-neutral">--</span>
             <span id="mode-badge" class="badge">PAPER</span>
             <span id="bot-status" class="badge">STOPPED</span>
         </div>
     </header>
 
-    <div id="countdown-bar">
-        <span id="market-countdown" class="countdown closed">--:--:-- until market opens</span>
-    </div>
-
-    <main>
-        <!-- Account Overview -->
-        <section class="card" id="account-section">
-            <h2>Account</h2>
-            <div class="metrics-grid">
-                <div class="metric">
-                    <span class="label">Portfolio Value</span>
-                    <span class="value" id="portfolio-value">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Cash</span>
-                    <span class="value" id="cash">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Buying Power</span>
-                    <span class="value" id="buying-power">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Day Trades</span>
-                    <span class="value" id="day-trades">--</span>
-                </div>
+    <div class="layout">
+        <!-- Left nav rail: sections of the bot (collapses to icons) -->
+        <aside id="component-rail" class="component-rail">
+          <div class="rail-panel">
+            <div class="rail-head">
+                <!-- FIRST child, not last. The collapsed head has only ~25px of
+                     content box and .rail-panel is overflow:hidden, so a button
+                     placed after the nowrap "Menu" title would be pushed clean
+                     out of sight while the rail is narrow.
+                     The glyph lives in CSS keyed off html.rail-pinned, which the
+                     <head> script sets before first paint — so the arrow is
+                     correct on frame one with no JS involved. -->
+                <button id="rail-pin" class="rail-pin" type="button"
+                        aria-controls="component-rail" aria-expanded="false"
+                        aria-label="Pin the menu open" title="Pin the menu open"
+                        onclick="toggleRailPin()"></button>
+                <span class="rail-title">Menu</span>
+                <!-- Only meaningful once the order has been changed; JS shows it
+                     then. visibility (not display) so the head's height — the
+                     most movement-sensitive box in the rail — never changes. -->
+                <button id="rail-reset" class="rail-reset" type="button"
+                        onclick="resetRailOrder()"
+                        aria-label="Reset menu order" title="Reset menu order">Reset</button>
             </div>
-        </section>
+            <ul class="rail-list">
+                <li class="rail-item" data-nav="overview" onclick="navigate('overview')">
+                    <span class="rail-icon">🏠</span>
+                    <span class="rail-text"><span class="rail-name">Overview</span><span class="rail-desc">Summary of all sections.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Overview"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="compare" onclick="navigate('compare')">
+                    <span class="rail-icon">🏆</span>
+                    <span class="rail-text"><span class="rail-name">Compare</span><span class="rail-desc">Leaderboard across all accounts &amp; strategies.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Compare"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="signals" onclick="navigate('signals')">
+                    <span class="rail-icon">📊</span>
+                    <span class="rail-text"><span class="rail-name">Signals</span><span class="rail-desc">7 technical indicators generate buy/sell signals.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Signals"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="ml" onclick="navigate('ml')">
+                    <span class="rail-icon">🤖</span>
+                    <span class="rail-text"><span class="rail-name">ML Filter</span><span class="rail-desc">Random-Forest model approves signals before trading.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder ML Filter"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="risk" onclick="navigate('risk')">
+                    <span class="rail-icon">🛡️</span>
+                    <span class="rail-text"><span class="rail-name">Risk Engine</span><span class="rail-desc">Vetoes trades and sizes positions within your limits.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Risk Engine"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="scanner" onclick="navigate('scanner')">
+                    <span class="rail-icon">🔎</span>
+                    <span class="rail-text"><span class="rail-name">Scanner</span><span class="rail-desc">Screens the watchlist for opportunities.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Scanner"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="scheduler" onclick="navigate('scheduler')">
+                    <span class="rail-icon">⏰</span>
+                    <span class="rail-text"><span class="rail-name">Scheduler</span><span class="rail-desc">Fires time-scheduled trades at market open.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Scheduler"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="safety" onclick="navigate('safety')">
+                    <span class="rail-icon">🚨</span>
+                    <span class="rail-text"><span class="rail-name">Safety</span><span class="rail-desc">Kill switch, protective stops, no naked positions.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Safety"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="eod" onclick="navigate('eod')">
+                    <span class="rail-icon">🌅</span>
+                    <span class="rail-text"><span class="rail-name">EOD Manager</span><span class="rail-desc">Flattens day trades before the market close.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder EOD Manager"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+                <li class="rail-item" data-nav="notifications" onclick="navigate('notifications')">
+                    <span class="rail-icon">🔔</span>
+                    <span class="rail-text"><span class="rail-name">Notifications</span><span class="rail-desc">Discord &amp; email alerts on entries and exits.</span></span>
+                    <button class="rail-grip" type="button" tabindex="-1"
+                            aria-label="Reorder Notifications"
+                            title="Drag to reorder (Alt+Up / Alt+Down)"></button>
+                </li>
+            </ul>
+            <script>
+                // Applies the saved menu order BEFORE first paint. It has to live
+                // here rather than in the <head> block (the <li>s don't exist yet
+                // there) or in dashboard.js (last in <body>, so the authored order
+                // would paint first and visibly reshuffle).
+                // Unknown ids are ignored and missing ids keep their place, so a
+                // stale saved order can never hide a nav item.
+                (function () {
+                    var list = document.querySelector('.rail-list');
+                    if (!list) return;
+                    // Stash the AUTHORED order before touching anything — by the time
+                    // dashboard.js runs the DOM may already be rearranged, so this is
+                    // the only moment "default" is still readable. It is what the
+                    // Reset control restores to.
+                    var authored = [].map.call(list.children, function (li) { return li.dataset.nav; });
+                    list.dataset.defaultOrder = JSON.stringify(authored);
+                    try {
+                        var saved = JSON.parse(localStorage.getItem('sw_rail_order') || '[]');
+                        if (!Array.isArray(saved) || !saved.length) return;
+                        var byNav = {};
+                        [].forEach.call(list.children, function (li) { byNav[li.dataset.nav] = li; });
+                        // Unknown ids are skipped; anything the saved order omits keeps
+                        // its relative place at the end, so no item can ever vanish.
+                        saved.forEach(function (nav) {
+                            if (byNav[nav]) list.appendChild(byNav[nav]);   // move, don't clone
+                        });
+                    } catch (e) {}
+                })();
+            </script>
+          </div>
+        </aside>
 
-        <!-- Performance Stats -->
-        <section class="card" id="stats-section">
-            <h2>Performance</h2>
-            <div class="metrics-grid">
-                <div class="metric">
-                    <span class="label">Daily P&L</span>
-                    <span class="value" id="daily-pnl">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Total P&L</span>
-                    <span class="value" id="total-pnl">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Win Rate</span>
-                    <span class="value" id="win-rate">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Total Trades</span>
-                    <span class="value" id="total-trades">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Max Drawdown</span>
-                    <span class="value" id="max-drawdown">--</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Consecutive Losses</span>
-                    <span class="value" id="consec-losses">--</span>
-                </div>
-            </div>
-        </section>
-
-        <!-- Bot Controls -->
-        <section class="card" id="controls-section">
-            <h2>Controls</h2>
-            <div class="controls">
-                <button id="btn-start" class="btn btn-start" onclick="startBot()">Start Bot</button>
-                <button id="btn-stop" class="btn btn-stop" onclick="stopBot()">Stop Bot</button>
-                <button id="btn-scan" class="btn btn-scan" onclick="runScan()">Scan Market</button>
-                <button id="btn-safety" class="btn btn-safety" onclick="openSafety()">🛡 Safety Rules</button>
-                <button id="btn-emergency" class="btn btn-emergency" onclick="emergencyStop()">EMERGENCY STOP</button>
-            </div>
-        </section>
-
-        <!-- Active Positions -->
-        <section class="card" id="positions-section">
-            <h2>Active Positions</h2>
-            <table id="positions-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Qty</th>
-                        <th>Entry</th>
-                        <th>Current</th>
-                        <th>P&L</th>
-                        <th>P&L %</th>
-                    </tr>
-                </thead>
-                <tbody id="positions-body">
-                    <tr><td colspan="7" class="empty">No active positions</td></tr>
-                </tbody>
-            </table>
-        </section>
-
-        <!-- Open Orders -->
-        <section class="card" id="orders-section">
-            <h2>Open Orders</h2>
-            <table id="orders-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Type</th>
-                        <th>Qty</th>
-                        <th>Price</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody id="orders-body">
-                    <tr><td colspan="6" class="empty">No open orders</td></tr>
-                </tbody>
-            </table>
-        </section>
-
-        <!-- Schedule a Trade -->
-        <section class="card" id="schedule-section">
-            <h2>Schedule a Trade</h2>
-            <div class="schedule-form">
-                <div class="form-row">
-                    <div class="form-group autocomplete-wrapper">
-                        <label>Symbol</label>
-                        <input type="text" id="sched-symbol" placeholder="Search stocks..." autocomplete="off" oninput="onSymbolInput(this.value)">
-                        <div id="symbol-dropdown" class="autocomplete-dropdown"></div>
-                    </div>
-                    <div class="form-group">
-                        <label>Side</label>
-                        <select id="sched-side">
-                            <option value="buy">BUY</option>
-                            <option value="sell">SELL</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Qty</label>
-                        <input type="number" id="sched-qty" placeholder="1" min="1" value="1">
-                    </div>
-                    <div class="form-group">
-                        <label>Order Type</label>
-                        <select id="sched-type" onchange="toggleLimitPrice()">
-                            <option value="market">Market</option>
-                            <option value="limit">Limit</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group" id="limit-price-group" style="display:none;">
-                        <label>Limit Price</label>
-                        <input type="number" id="sched-limit" placeholder="0.00" step="0.01">
-                    </div>
-                    <div class="form-group">
-                        <label>Date</label>
-                        <input type="date" id="sched-date">
-                    </div>
-                    <div class="form-group">
-                        <label>Time (ET)</label>
-                        <input type="time" id="sched-time" value="09:30">
-                    </div>
-                    <div class="form-group">
-                        <label>Stop Loss %</label>
-                        <input type="number" id="sched-sl" placeholder="2.0" step="0.1" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Take Profit %</label>
-                        <input type="number" id="sched-tp" placeholder="4.0" step="0.1" min="0">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group" style="flex:2;">
-                        <label>Notes (optional)</label>
-                        <input type="text" id="sched-notes" placeholder="Reason for this trade...">
-                    </div>
-                    <div class="form-group quote-display" id="quote-display" style="display:none;">
-                        <label>Current Price</label>
-                        <span id="sched-quote-price" class="value">--</span>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <button class="btn btn-start" onclick="submitScheduledTrade()">Schedule Trade</button>
-                </div>
+        <main>
+            <div class="page-head">
+                <h1 id="page-title">Overview</h1>
+                <!-- .page-head carries no data-page, so navigate() never hides it —
+                     this names the account on every page, not just Overview. -->
+                <!-- Account identity, beside the page title rather than in the
+                     header. The header's four figures are identical across
+                     accounts on a fresh paper setup ($9,000 / $9,000 / 0 /
+                     $0.00), so they cannot confirm a switch; this badge carries
+                     what IS per-account — a colour (echoed on the Account card
+                     pill and the Compare leaderboard), the initial, the name,
+                     and the real Alpaca account number.
+                     .page-head has no data-page, so navigate() never hides it
+                     and this shows on every page. -->
+                <span class="viewing-account" title="The account these figures belong to">Viewing
+                    <span id="account-identity" class="acct-identity acct-flash-target">
+                        <span class="acct-chip" id="acct-identity-initial" aria-hidden="true">-</span>
+                        <span class="acct-identity-text">
+                            <span class="acct-identity-name" id="acct-identity-name">--</span>
+                            <span class="acct-identity-broker" id="acct-identity-broker">--</span>
+                        </span>
+                    </span>
+                </span>
             </div>
 
-            <!-- Pending Scheduled Trades -->
-            <h3 style="margin-top:20px; color:var(--text-secondary);">Pending Scheduled Trades</h3>
-            <table id="scheduled-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Qty</th>
-                        <th>Type</th>
-                        <th>Scheduled Time</th>
-                        <th>SL / TP</th>
-                        <th>Notes</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody id="scheduled-body">
-                    <tr><td colspan="9" class="empty">No scheduled trades</td></tr>
-                </tbody>
-            </table>
-
-            <!-- Scheduled Trade History -->
-            <details style="margin-top:12px;">
-                <summary style="color:var(--text-secondary); cursor:pointer; font-size:13px;">Scheduled Trade History</summary>
-                <table id="scheduled-history-table" style="margin-top:8px;">
+            <!-- ==================== COMPARE (leaderboard) ==================== -->
+            <section class="card" data-page="compare">
+                <h2>Account Leaderboard</h2>
+                <p class="page-intro">Live head-to-head of your accounts, each running its own strategy. Ranked by total P&amp;L. Add more accounts by putting their keys in <code>.env</code>.</p>
+                <table id="compare-table">
                     <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Symbol</th>
-                            <th>Side</th>
-                            <th>Qty</th>
-                            <th>Scheduled</th>
-                            <th>Status</th>
-                            <th>Executed</th>
-                        </tr>
+                        <tr><th>#</th><th>Account</th><th>Strategy</th><th>Equity</th><th>Total P&L</th><th>Win Rate</th><th>Trades</th><th>Drawdown</th><th>Open</th><th>State</th></tr>
                     </thead>
-                    <tbody id="scheduled-history-body">
-                        <tr><td colspan="7" class="empty">No history</td></tr>
+                    <tbody id="compare-body">
+                        <tr><td colspan="10" class="empty">Loading…</td></tr>
                     </tbody>
                 </table>
-            </details>
-        </section>
+            </section>
 
-        <!-- Watchlist -->
-        <section class="card" id="watchlist-section">
-            <h2>Watchlist</h2>
-            <div class="watchlist-controls">
-                <input type="text" id="watchlist-input" placeholder="Add symbol (e.g., AAPL)">
-                <button class="btn btn-small" onclick="addToWatchlist()">Add</button>
-            </div>
-            <div id="watchlist-tags"></div>
-        </section>
+            <!-- ==================== OVERVIEW ==================== -->
 
-        <!-- Scan Results -->
-        <section class="card" id="scan-section" style="display:none;">
-            <h2>Scan Results</h2>
-            <table id="scan-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Score</th>
-                        <th>Direction</th>
-                        <th>Price</th>
-                        <th>Change</th>
-                        <th>Vol Ratio</th>
-                        <th>Reasons</th>
-                    </tr>
-                </thead>
-                <tbody id="scan-body"></tbody>
-            </table>
-        </section>
+            <!-- Bot Controls (top of Overview) -->
+            <section class="card control-bar" id="controls-section" data-page="overview">
+                <div class="control-bar-status">
+                    <span class="control-dot" id="control-dot"></span>
+                    <div>
+                        <div class="control-state" id="control-state">Bot: --</div>
+                        <div class="control-sub" id="control-sub">--</div>
+                    </div>
+                </div>
+                <div class="controls">
+                    <button id="btn-start" class="btn btn-start" onclick="startBot()">▶ Start Bot</button>
+                    <button id="btn-stop" class="btn btn-stop" onclick="stopBot()">■ Stop Bot</button>
+                    <button id="btn-scan" class="btn btn-scan" onclick="runScan()">Scan Market</button>
+                    <button id="btn-risk" class="btn btn-safety" onclick="navigate('risk')">⚙ Risk Limits</button>
+                    <button id="btn-safety" class="btn btn-safety" onclick="navigate('safety')">🛡 Safety</button>
+                    <button id="btn-emergency" class="btn btn-emergency" onclick="emergencyStop()">EMERGENCY STOP</button>
+                </div>
+            </section>
 
-        <!-- Trade History -->
-        <section class="card" id="history-section">
-            <h2>Recent Trades</h2>
-            <table id="history-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Symbol</th>
-                        <th>Side</th>
-                        <th>Qty</th>
-                        <th>Entry</th>
-                        <th>Signal</th>
-                        <th>R:R</th>
-                    </tr>
-                </thead>
-                <tbody id="history-body">
-                    <tr><td colspan="7" class="empty">No trades yet</td></tr>
-                </tbody>
-            </table>
-        </section>
-    </main>
+            <!-- Performance Summary -->
+            <section class="card" id="summary-section" data-page="overview">
+                <h2>Performance Summary</h2>
+                <div class="summary-grid">
+                    <div class="summary-col">
+                        <div class="summary-col-head"><span class="dot dot-open"></span> Current — Open Trades</div>
+                        <div class="metrics-grid">
+                            <div class="metric"><span class="label">Open Positions</span><span class="value" id="sum-open-count">--</span></div>
+                            <div class="metric"><span class="label">Unrealized P&amp;L</span><span class="value" id="sum-unrealized">--</span></div>
+                            <div class="metric"><span class="label">Winning / Losing</span><span class="value" id="sum-open-wl">--</span></div>
+                        </div>
+                        <p class="safety-note" id="sum-open-note"></p>
+                    </div>
+                    <div class="summary-col">
+                        <div class="summary-col-head"><span class="dot dot-hist"></span> History — Closed Trades</div>
+                        <div class="metrics-grid">
+                            <div class="metric"><span class="label">Realized P&amp;L</span><span class="value" id="sum-realized">--</span></div>
+                            <div class="metric"><span class="label">Win Rate</span><span class="value" id="sum-winrate">--</span></div>
+                            <div class="metric"><span class="label">Total Trades</span><span class="value" id="sum-trades">--</span></div>
+                            <div class="metric"><span class="label">Profit Factor</span><span class="value" id="sum-pf">--</span></div>
+                            <div class="metric"><span class="label">Max Drawdown</span><span class="value" id="sum-dd">--</span></div>
+                        </div>
+                        <div class="winrate-bar" title="Win rate"><div class="winrate-fill" id="sum-winrate-bar"></div></div>
+                    </div>
+                </div>
+            </section>
 
-    <!-- Safety Constitution modal (hidden until opened) -->
-    <div id="safety-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeSafety()">
-        <div class="modal" role="dialog" aria-modal="true" aria-label="Safety Constitution">
-            <div class="modal-header">
-                <h2>Safety Constitution <span class="safety-live-dot" title="Live enforcement">●</span></h2>
-                <button class="modal-close" onclick="closeSafety()" aria-label="Close">&times;</button>
-            </div>
-            <div class="modal-body">
+            <!-- Section summary cards (each links to its detail page) -->
+            <section class="card" id="section-cards-wrap" data-page="overview">
+                <h2>Sections</h2>
+                <div class="section-cards" id="section-cards">
+                    <div class="empty">Loading…</div>
+                </div>
+            </section>
+
+            <!-- Account Overview -->
+            <section class="card" id="account-section" data-page="overview">
+                <h2>Account <span class="account-tag" id="account-name-tag">--</span></h2>
+                <div class="metrics-grid">
+                    <div class="metric"><span class="label">Portfolio Value</span><span class="value" id="portfolio-value">--</span></div>
+                    <div class="metric"><span class="label">Cash</span><span class="value" id="cash">--</span></div>
+                    <div class="metric"><span class="label">Buying Power</span><span class="value" id="buying-power">--</span></div>
+                    <div class="metric"><span class="label">Day Trades</span><span class="value" id="day-trades">--</span></div>
+                </div>
+            </section>
+
+            <!-- Active Positions -->
+            <section class="card" id="positions-section" data-page="overview">
+                <h2>Active Positions</h2>
+                <table id="positions-table">
+                    <thead>
+                        <tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&L</th><th>P&L %</th></tr>
+                    </thead>
+                    <tbody id="positions-body">
+                        <tr><td colspan="7" class="empty">No active positions</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Trade History -->
+            <section class="card" id="history-section" data-page="overview">
+                <h2>Recent Trades</h2>
+                <table id="history-table">
+                    <thead>
+                        <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Signal</th><th>R:R</th></tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <tr><td colspan="7" class="empty">No trades yet</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- ==================== SIGNALS ==================== -->
+            <section class="card" data-page="signals">
+                <h2>📊 Signals</h2>
+                <p class="page-intro">Seven technical indicators each vote buy / sell / neutral on every watched symbol. A weighted composite must clear your strength and confirmation thresholds before a trade is proposed.</p>
+                <div id="signals-detail"></div>
+            </section>
+
+            <!-- ==================== ML FILTER ==================== -->
+            <section class="card" data-page="ml">
+                <h2>🤖 ML Filter</h2>
+                <p class="page-intro">A Random-Forest model learns from completed trades and can veto weak signals. It starts untrained (approving all signals) and retrains as samples accumulate.</p>
+                <div id="ml-detail"></div>
+            </section>
+
+            <!-- ==================== RISK ENGINE ==================== -->
+            <!-- Risk framework status: drawdown ladder + correlation groups -->
+            <section class="card" data-page="risk">
+                <h2>Risk Framework</h2>
+                <div id="risk-framework"></div>
+            </section>
+
+            <!-- Risk Limits (editable; lock to apply) -->
+            <section class="card" id="limits-section" data-page="risk">
+                <h2>Risk Limits
+                    <button id="limits-edit-btn" class="lock-btn" onclick="toggleLimitsEdit()" title="Unlock to edit">🔓 Edit</button>
+                </h2>
+                <div class="metrics-grid" id="limits-grid">
+                    <div class="metric"><span class="label">Loading…</span></div>
+                </div>
+                <div id="limits-actions" class="limits-actions" style="display:none;">
+                    <button class="btn btn-stop" onclick="cancelLimitsEdit()">Cancel</button>
+                    <button class="btn btn-small btn-reset-limits" onclick="resetLimits()">Reset to defaults</button>
+                    <span class="safety-note">Values are clamped to safe ranges; leverage is fixed at 1×.</span>
+                </div>
+                <p id="limits-msg" class="safety-note"></p>
+            </section>
+
+            <!-- Performance Stats -->
+            <section class="card" id="stats-section" data-page="risk">
+                <h2>Performance</h2>
+                <div class="metrics-grid">
+                    <div class="metric"><span class="label">Daily P&L</span><span class="value" id="daily-pnl">--</span></div>
+                    <div class="metric"><span class="label">Total P&L</span><span class="value" id="total-pnl">--</span></div>
+                    <div class="metric"><span class="label">Win Rate</span><span class="value" id="win-rate">--</span></div>
+                    <div class="metric"><span class="label">Total Trades</span><span class="value" id="total-trades">--</span></div>
+                    <div class="metric"><span class="label">Max Drawdown</span><span class="value" id="max-drawdown">--</span></div>
+                    <div class="metric"><span class="label">Consecutive Losses</span><span class="value" id="consec-losses">--</span></div>
+                </div>
+            </section>
+
+            <!-- Open Orders -->
+            <section class="card" id="orders-section" data-page="risk">
+                <h2>Open Orders</h2>
+                <table id="orders-table">
+                    <thead>
+                        <tr><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Price</th><th>Status</th></tr>
+                    </thead>
+                    <tbody id="orders-body">
+                        <tr><td colspan="6" class="empty">No open orders</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- ==================== SCANNER ==================== -->
+            <!-- Watchlist -->
+            <section class="card" id="watchlist-section" data-page="scanner">
+                <h2>Watchlist</h2>
+                <div class="watchlist-controls">
+                    <!-- The wrapper is the dropdown's positioning context, and it
+                         carries the flex:1 that used to be on the input — the
+                         wrapper, not the input, is now the flex item.
+                         autocomplete="off" stops the browser's own autofill popup
+                         rendering on top of ours. -->
+                    <div class="autocomplete-wrapper">
+                        <input type="text" id="watchlist-input" autocomplete="off"
+                               placeholder="Add symbol or company (e.g. AAPL, Apple)">
+                        <div id="watchlist-dropdown" class="autocomplete-dropdown"></div>
+                    </div>
+                    <button class="btn btn-small" onclick="addToWatchlist()">Add</button>
+                </div>
+                <div id="watchlist-tags"></div>
+                <!-- Every OTHER account's watchlist, showing only what this one is
+                     missing, so symbols can be copied across without switching
+                     accounts to go and look. Populated from /api/accounts, which
+                     now carries each account's list. -->
+                <div id="watchlist-others" class="watchlist-others"></div>
+            </section>
+
+            <!-- Scan Results -->
+            <section class="card" id="scan-section" data-page="scanner">
+                <h2>Scan Results <button class="btn btn-small" onclick="runScan()">Run Scan</button></h2>
+                <table id="scan-table">
+                    <thead>
+                        <tr><th>Symbol</th><th>Score</th><th>Direction</th><th>Price</th><th>Change</th><th>Vol Ratio</th><th>Reasons</th></tr>
+                    </thead>
+                    <tbody id="scan-body">
+                        <tr><td colspan="7" class="empty">Run a scan to see opportunities</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- ==================== SCHEDULER ==================== -->
+            <section class="card" id="schedule-section" data-page="scheduler">
+                <h2>Schedule a Trade</h2>
+                <div class="schedule-form">
+                    <div class="form-row">
+                        <div class="form-group autocomplete-wrapper">
+                            <label>Symbol</label>
+                            <!-- No oninput= : createSymbolAutocomplete binds the
+                                 listener itself, so the instance owns its state. -->
+                            <input type="text" id="sched-symbol" placeholder="Search stocks..." autocomplete="off">
+                            <div id="symbol-dropdown" class="autocomplete-dropdown"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Side</label>
+                            <select id="sched-side">
+                                <option value="buy">BUY</option>
+                                <option value="sell">SELL</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Qty</label>
+                            <input type="number" id="sched-qty" placeholder="1" min="1" value="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Order Type</label>
+                            <select id="sched-type" onchange="toggleLimitPrice()">
+                                <option value="market">Market</option>
+                                <option value="limit">Limit</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" id="limit-price-group" style="display:none;">
+                            <label>Limit Price</label>
+                            <input type="number" id="sched-limit" placeholder="0.00" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Date</label>
+                            <input type="date" id="sched-date">
+                        </div>
+                        <div class="form-group">
+                            <label>Time (ET)</label>
+                            <input type="time" id="sched-time" value="09:30">
+                        </div>
+                        <div class="form-group">
+                            <label>Stop Loss %</label>
+                            <input type="number" id="sched-sl" placeholder="2.0" step="0.1" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Take Profit %</label>
+                            <input type="number" id="sched-tp" placeholder="4.0" step="0.1" min="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" style="flex:2;">
+                            <label>Notes (optional)</label>
+                            <input type="text" id="sched-notes" placeholder="Reason for this trade...">
+                        </div>
+                        <div class="form-group quote-display" id="quote-display" style="display:none;">
+                            <label>Current Price</label>
+                            <span id="sched-quote-price" class="value">--</span>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <button class="btn btn-start" onclick="submitScheduledTrade()">Schedule Trade</button>
+                    </div>
+                </div>
+
+                <h3 style="margin-top:20px; color:var(--text-secondary);">Pending Scheduled Trades</h3>
+                <table id="scheduled-table">
+                    <thead>
+                        <tr><th>ID</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th><th>Scheduled Time</th><th>SL / TP</th><th>Notes</th><th>Action</th></tr>
+                    </thead>
+                    <tbody id="scheduled-body">
+                        <tr><td colspan="9" class="empty">No scheduled trades</td></tr>
+                    </tbody>
+                </table>
+
+                <details style="margin-top:12px;">
+                    <summary style="color:var(--text-secondary); cursor:pointer; font-size:13px;">Scheduled Trade History</summary>
+                    <table id="scheduled-history-table" style="margin-top:8px;">
+                        <thead>
+                            <tr><th>ID</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Scheduled</th><th>Status</th><th>Executed</th></tr>
+                        </thead>
+                        <tbody id="scheduled-history-body">
+                            <tr><td colspan="7" class="empty">No history</td></tr>
+                        </tbody>
+                    </table>
+                </details>
+            </section>
+
+            <!-- ==================== SAFETY ==================== -->
+            <section class="card" data-page="safety">
+                <h2>🚨 Safety Constitution <span class="safety-live-dot" title="Live enforcement">●</span></h2>
                 <div class="safety-status">
                     <span id="killswitch-badge" class="badge">--</span>
                     <span id="halt-badge" class="badge badge-red" style="display:none;">NEW ORDERS HALTED</span>
                     <span id="paused-badge" class="badge badge-yellow" style="display:none;">PAUSED</span>
                     <span class="safety-note" id="killswitch-reason"></span>
                 </div>
-
-                <div class="metrics-grid safety-limits">
-                    <div class="metric"><span class="label">Leverage 🔒</span><span class="value" id="lim-leverage">--</span></div>
-                    <div class="metric"><span class="label">Max Positions 🔒</span><span class="value" id="lim-maxpos">--</span></div>
-                    <div class="metric"><span class="label">Max Position % 🔒</span><span class="value" id="lim-pospct">--</span></div>
-                    <div class="metric"><span class="label">Risk / Trade 🔒</span><span class="value" id="lim-risk">--</span></div>
-                    <div class="metric"><span class="label">Daily Loss Limit 🔒</span><span class="value" id="lim-dailyloss">--</span></div>
-                    <div class="metric"><span class="label">Min R:R 🔒</span><span class="value" id="lim-minrr">--</span></div>
-                </div>
-
                 <ul id="rules-list" class="rules-list">
                     <li class="rule-item empty">Loading rules…</li>
                 </ul>
-
-                <!-- Operator Overrides: human-set, bounded, audited (does not violate Rule 3) -->
-                <div class="overrides">
-                    <h3>Operator Overrides <span class="safety-note">— human-set &amp; bounded; leverage stays 1×</span></h3>
-                    <div class="form-row">
-                        <div class="form-group"><label>Max Positions</label><input type="number" id="ov-maxpos" min="1" max="20" step="1" placeholder="1–20"></div>
-                        <div class="form-group"><label>Risk % / Trade</label><input type="number" id="ov-risk" min="0.1" max="5" step="0.1" placeholder="0.1–5"></div>
-                        <div class="form-group"><label>Max Position %</label><input type="number" id="ov-pospct" min="1" max="100" step="1" placeholder="1–100"></div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group"><label>Max Daily Loss %</label><input type="number" id="ov-dailyloss" min="0.5" max="50" step="0.5" placeholder="0.5–50"></div>
-                        <div class="form-group"><label>Min Risk:Reward</label><input type="number" id="ov-minrr" min="1" max="10" step="0.1" placeholder="1–10"></div>
-                        <div class="form-group ov-actions">
-                            <label>&nbsp;</label>
-                            <div class="ov-buttons">
-                                <button class="btn btn-start" onclick="applyOverrides()">Apply</button>
-                                <button class="btn btn-stop" onclick="resetOverrides()">Reset</button>
-                            </div>
-                        </div>
-                    </div>
-                    <p class="safety-note" id="ov-msg"></p>
-                </div>
-
                 <p class="safety-reset-hint" id="reset-hint" style="display:none;"></p>
-            </div>
-        </div>
+                <div style="margin-top:16px;">
+                    <button class="btn btn-emergency" onclick="emergencyStop()">EMERGENCY STOP</button>
+                </div>
+            </section>
+
+            <!-- ==================== EOD MANAGER ==================== -->
+            <section class="card" data-page="eod">
+                <h2>🌅 EOD Manager</h2>
+                <p class="page-intro">Before the market close, the End-of-Day manager flattens day-trade positions so nothing is held overnight unintentionally. Swing positions are spared; untracked positions are closed defensively.</p>
+                <div id="eod-detail"></div>
+            </section>
+
+            <!-- ==================== NOTIFICATIONS ==================== -->
+            <section class="card" data-page="notifications">
+                <h2>🔔 Notifications</h2>
+                <p class="page-intro">Optional Discord and email alerts on trade entries, exits, and errors. Credentials are configured in the <code>.env</code> file; toggles live in <code>config/settings.ini</code>.</p>
+                <div id="notif-detail"></div>
+            </section>
+        </main>
     </div>
 
     <footer>
         <p>StockWarren v1.0 | <span id="last-update">--</span></p>
     </footer>
+
+    <!-- Account-switch toast. Deliberately a direct child of <body> after the
+         footer: refreshAll() rewrites the innerHTML of most panels inside
+         .layout every 5s, and navigate() sets display:none on every element
+         carrying a data-page attribute. Living out here keeps the toast clear
+         of both. It's in the template rather than created by JS because an ARIA
+         live region must already exist in the DOM for updates to be announced. -->
+    <div id="toast-region" class="toast-region"
+         role="status" aria-live="polite" aria-atomic="true"></div>
 
     <script src="/static/js/dashboard.js"></script>
 </body>

@@ -1,6 +1,167 @@
 /* StockWarren Dashboard Styles */
 
-:root {
+/* ============================================================
+   THEMES
+   Every colour in this file comes from a token below — there are no
+   hardcoded colours in the rules further down. Adding a theme therefore
+   means adding one block here plus one entry in THEMES in dashboard.js;
+   nothing else needs touching.
+
+   Selectors are plain [data-theme="x"] (NOT html[data-theme="x"]) on
+   purpose: that lets any element opt into a theme, which is how the
+   picker's preview swatches render real theme colours without the
+   palette being duplicated in JS.
+
+   Token groups:
+     bg/text/border  — surfaces and type
+     accent-*        — semantic colours (green=profit, red=loss, ...)
+     on-accent       — text placed ON a solid accent fill; flips to a dark
+                       value in themes whose accents are pale, or button
+                       labels become unreadable
+     tint-*          — ~10-15% accent washes behind badges
+     accent-acct-N   — per-account identity colours, N = 1..4, assigned by
+                       position in the [accounts] ids list. Deliberately never
+                       green, red or blue: those already mean profit, loss and
+                       "interactive", and an account colour must not be mistaken
+                       for any of them. Slot 4 is headroom and is the weakest of
+                       the four (closest to accent-yellow/orange) because no
+                       fourth free hue band exists — re-audit before using it.
+     tint-acct-N     — the matching wash, at 0.14 in dark themes rather than the
+                       0.18-0.20 the other tints use, because account-coloured
+                       TEXT sits on this wash where the badges' does not.
+                       Verify any change with: python tests/audit_palette.py
+     glow-*          — status-dot halos
+     overlay         — modal scrim
+     shadow-md/lg    — elevation; light themes need far softer shadows
+                       than dark ones or cards look grubby
+     color-scheme    — tells the browser to render native selects,
+                       scrollbars and form controls light or dark
+   ============================================================ */
+
+/* ---- Daylight (default): soft cool white, deliberately not #fff ---- */
+:root,
+[data-theme="daylight"] {
+    color-scheme: light;
+    --bg-primary: #f5f7fa;
+    --bg-secondary: #ffffff;
+    --bg-card: #ffffff;
+    --text-primary: #1c2128;
+    --text-secondary: #5c6773;
+    --accent-green: #1a7f37;
+    --accent-red: #cf222e;
+    --accent-blue: #0969da;
+    --accent-yellow: #9a6700;
+    --accent-orange: #bc4c00;
+    --border: #d8dee6;
+    --on-accent: #ffffff;
+    --fill-green: #1a7f37;
+    --fill-blue: #0969da;
+    --fill-red: #cf222e;
+    --fill-neutral: #5c6773;
+    --tint-green: rgba(26, 127, 55, 0.12);
+    --tint-red: rgba(207, 34, 46, 0.12);
+    --tint-blue: rgba(9, 105, 218, 0.12);
+    --tint-yellow: rgba(154, 103, 0, 0.14);
+    --accent-acct-1: #6639ba;
+    --accent-acct-2: #0f766e;
+    --accent-acct-3: #9d174d;
+    --accent-acct-4: #8a5320;
+    --tint-acct-1: rgba(102, 57, 186, 0.12);
+    --tint-acct-2: rgba(15, 118, 110, 0.12);
+    --tint-acct-3: rgba(157, 23, 77, 0.12);
+    --tint-acct-4: rgba(138, 83, 32, 0.12);
+    --accent-blue-soft: rgba(9, 105, 218, 0.10);
+    --glow-green: rgba(26, 127, 55, 0.18);
+    --glow-red: rgba(207, 34, 46, 0.16);
+    --overlay: rgba(27, 33, 40, 0.45);
+    --shadow-md: 0 8px 24px rgba(27, 33, 40, 0.10);
+    --shadow-lg: 0 16px 40px rgba(27, 33, 40, 0.16);
+}
+
+/* ---- Paper: warm sepia, lowest glare of the light set ---- */
+[data-theme="paper"] {
+    color-scheme: light;
+    --bg-primary: #f4efe6;
+    --bg-secondary: #fbf8f2;
+    --bg-card: #fdfbf7;
+    --text-primary: #3a3226;
+    --text-secondary: #756b5b;
+    --accent-green: #4a7c2f;
+    --accent-red: #b3402e;
+    --accent-blue: #2c6b9e;
+    --accent-yellow: #8a6d1f;
+    --accent-orange: #b5561b;
+    --border: #e0d7c8;
+    --on-accent: #ffffff;
+    --fill-green: #4a7c2f;
+    --fill-blue: #2c6b9e;
+    --fill-red: #b3402e;
+    --fill-neutral: #756b5b;
+    --tint-green: rgba(74, 124, 47, 0.14);
+    --tint-red: rgba(179, 64, 46, 0.13);
+    --tint-blue: rgba(44, 107, 158, 0.13);
+    --tint-yellow: rgba(138, 109, 31, 0.16);
+    --accent-acct-1: #6f4f9c;
+    --accent-acct-2: #2b7168;
+    --accent-acct-3: #9c3f63;
+    --accent-acct-4: #8a5320;
+    --tint-acct-1: rgba(111, 79, 156, 0.14);
+    --tint-acct-2: rgba(43, 113, 104, 0.14);
+    --tint-acct-3: rgba(156, 63, 99, 0.14);
+    --tint-acct-4: rgba(138, 83, 32, 0.14);
+    --accent-blue-soft: rgba(44, 107, 158, 0.10);
+    --glow-green: rgba(74, 124, 47, 0.18);
+    --glow-red: rgba(179, 64, 46, 0.16);
+    --overlay: rgba(58, 50, 38, 0.45);
+    --shadow-md: 0 8px 24px rgba(58, 50, 38, 0.10);
+    --shadow-lg: 0 16px 40px rgba(58, 50, 38, 0.16);
+}
+
+/* ---- Mist: cool blue-grey light, crisper than Daylight ---- */
+[data-theme="mist"] {
+    color-scheme: light;
+    --bg-primary: #eef2f7;
+    --bg-secondary: #f8fafc;
+    --bg-card: #ffffff;
+    --text-primary: #1e293b;
+    --text-secondary: #606f85;
+    --accent-green: #15803d;
+    --accent-red: #dc2626;
+    --accent-blue: #2563eb;
+    --accent-yellow: #a16207;
+    --accent-orange: #cb4c0a;
+    --border: #cbd5e1;
+    --on-accent: #ffffff;
+    --fill-green: #15803d;
+    --fill-blue: #2563eb;
+    --fill-red: #dc2626;
+    --fill-neutral: #606f85;
+    --tint-green: rgba(21, 128, 61, 0.12);
+    --tint-red: rgba(220, 38, 38, 0.12);
+    --tint-blue: rgba(37, 99, 235, 0.12);
+    --tint-yellow: rgba(161, 98, 7, 0.14);
+    --accent-acct-1: #6d28d9;
+    --accent-acct-2: #0f766e;
+    --accent-acct-3: #be185d;
+    --accent-acct-4: #92400e;
+    --tint-acct-1: rgba(109, 40, 217, 0.12);
+    --tint-acct-2: rgba(15, 118, 110, 0.12);
+    --tint-acct-3: rgba(190, 24, 93, 0.12);
+    --tint-acct-4: rgba(146, 64, 14, 0.12);
+    --accent-blue-soft: rgba(37, 99, 235, 0.10);
+    --glow-green: rgba(21, 128, 61, 0.18);
+    --glow-red: rgba(220, 38, 38, 0.16);
+    --overlay: rgba(30, 41, 59, 0.45);
+    --shadow-md: 0 8px 24px rgba(30, 41, 59, 0.10);
+    --shadow-lg: 0 16px 40px rgba(30, 41, 59, 0.16);
+}
+
+/* ---- Midnight: the original dashboard palette. Text/figure accents are the
+   original values exactly, so charts and P&L numbers look as they always did.
+   Only the solid button fills are darkened: white-on-#3fb950 measured 2.54:1,
+   which made "Start Bot" and "Scan Market" labels hard to read. ---- */
+[data-theme="midnight"] {
+    color-scheme: dark;
     --bg-primary: #0d1117;
     --bg-secondary: #161b22;
     --bg-card: #1c2128;
@@ -12,6 +173,107 @@
     --accent-yellow: #d29922;
     --accent-orange: #db6d28;
     --border: #30363d;
+    --on-accent: #ffffff;
+    --fill-green: #2e863a;
+    --fill-blue: #4078b9;
+    --fill-red: #cf443d;
+    --fill-neutral: #57606a;
+    --tint-green: rgba(63, 185, 80, 0.20);
+    --tint-red: rgba(248, 81, 73, 0.20);
+    --tint-blue: rgba(88, 166, 255, 0.20);
+    --tint-yellow: rgba(210, 153, 34, 0.20);
+    --accent-acct-1: #bc8cff;
+    --accent-acct-2: #39c5bb;
+    --accent-acct-3: #f778ba;
+    --accent-acct-4: #c9975b;
+    --tint-acct-1: rgba(188, 140, 255, 0.14);
+    --tint-acct-2: rgba(57, 197, 187, 0.14);
+    --tint-acct-3: rgba(247, 120, 186, 0.14);
+    --tint-acct-4: rgba(201, 151, 91, 0.14);
+    --accent-blue-soft: rgba(88, 166, 255, 0.12);
+    --glow-green: rgba(63, 185, 80, 0.15);
+    --glow-red: rgba(248, 81, 73, 0.12);
+    --overlay: rgba(0, 0, 0, 0.6);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Slate: softer blue-grey dark; pale accents so text on them is dark ---- */
+[data-theme="slate"] {
+    color-scheme: dark;
+    --bg-primary: #1a1f2b;
+    --bg-secondary: #222834;
+    --bg-card: #272e3c;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --accent-green: #4ade80;
+    --accent-red: #f87171;
+    --accent-blue: #60a5fa;
+    --accent-yellow: #fbbf24;
+    --accent-orange: #fb923c;
+    --border: #3a4356;
+    --on-accent: #16202c;
+    --fill-green: #4ade80;
+    --fill-blue: #60a5fa;
+    --fill-red: #f87171;
+    --fill-neutral: #94a3b8;
+    --tint-green: rgba(74, 222, 128, 0.18);
+    --tint-red: rgba(248, 113, 113, 0.18);
+    --tint-blue: rgba(96, 165, 250, 0.18);
+    --tint-yellow: rgba(251, 191, 36, 0.18);
+    --accent-acct-1: #a78bfa;
+    --accent-acct-2: #2dd4bf;
+    --accent-acct-3: #f472b6;
+    --accent-acct-4: #d9a441;
+    --tint-acct-1: rgba(167, 139, 250, 0.14);
+    --tint-acct-2: rgba(45, 212, 191, 0.14);
+    --tint-acct-3: rgba(244, 114, 182, 0.14);
+    --tint-acct-4: rgba(217, 164, 65, 0.14);
+    --accent-blue-soft: rgba(96, 165, 250, 0.12);
+    --glow-green: rgba(74, 222, 128, 0.15);
+    --glow-red: rgba(248, 113, 113, 0.12);
+    --overlay: rgba(6, 10, 18, 0.6);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Nord: arctic dark; pale accents so text on them is dark ---- */
+[data-theme="nord"] {
+    color-scheme: dark;
+    --bg-primary: #2b313c;
+    --bg-secondary: #2e3440;
+    --bg-card: #333a47;
+    --text-primary: #eceff4;
+    --text-secondary: #b0bacb;
+    --accent-green: #a3be8c;
+    --accent-red: #eb8f95;
+    --accent-blue: #88c0d0;
+    --accent-yellow: #ebcb8b;
+    --accent-orange: #e59a7d;
+    --border: #4c566a;
+    --on-accent: #2e3440;
+    --fill-green: #a3be8c;
+    --fill-blue: #88c0d0;
+    --fill-red: #eb8f95;
+    --fill-neutral: #b0bacb;
+    --tint-green: rgba(163, 190, 140, 0.20);
+    --tint-red: rgba(235, 143, 149, 0.20);
+    --tint-blue: rgba(136, 192, 208, 0.20);
+    --tint-yellow: rgba(235, 203, 139, 0.20);
+    --accent-acct-1: #c3aede;
+    --accent-acct-2: #56d0b8;
+    --accent-acct-3: #eb84d4;
+    --accent-acct-4: #d9a76a;
+    --tint-acct-1: rgba(195, 174, 222, 0.14);
+    --tint-acct-2: rgba(86, 208, 184, 0.14);
+    --tint-acct-3: rgba(235, 132, 212, 0.14);
+    --tint-acct-4: rgba(217, 167, 106, 0.14);
+    --accent-blue-soft: rgba(136, 192, 208, 0.14);
+    --glow-green: rgba(163, 190, 140, 0.18);
+    --glow-red: rgba(235, 143, 149, 0.16);
+    --overlay: rgba(20, 24, 32, 0.6);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -26,21 +288,171 @@ body {
 header {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
-    padding: 16px 24px;
+    padding: 14px 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
 }
 
 header h1 {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
 }
 
 #status-bar {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
 }
+
+/* ---- Per-account colour ----
+   --acct / --acct-tint are LOCALS, not theme tokens: they exist only on
+   elements carrying one of the four classes below, and every account-coloured
+   rule in this file reads them. That is why there is one rule per component
+   rather than four. An element with no .acct-c* class — the state for at most
+   one poll on a cold load, before /api/accounts resolves the ordinal — falls
+   through to the neutral second argument of each var(), which is why every
+   var(--acct, ...) below names a fallback. */
+.acct-c1 { --acct: var(--accent-acct-1); --acct-tint: var(--tint-acct-1); }
+.acct-c2 { --acct: var(--accent-acct-2); --acct-tint: var(--tint-acct-2); }
+.acct-c3 { --acct: var(--accent-acct-3); --acct-tint: var(--tint-acct-3); }
+.acct-c4 { --acct: var(--accent-acct-4); --acct-tint: var(--tint-acct-4); }
+
+/* ---- Account identity badge (header, left of the switcher) ----
+   Two-line structure deliberately mirrors .astat (13px value over a 9px
+   caption) so it lands in the same optical grid as the four figures and adds
+   no header height. Reading order across the header is: who you are, then the
+   control that changes it, then that account's numbers. */
+.acct-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 10px 3px 4px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    min-width: 0;
+}
+
+/* Dot and initial are one element, not two: at 22px it still reads as a dot,
+   and folding the letter inside costs no extra width in a header that already
+   wraps at ~1100px. */
+.acct-chip {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    background: var(--acct-tint, var(--tint-blue));
+    color: var(--acct, var(--text-secondary));
+    box-shadow: inset 0 0 0 1.5px var(--acct, var(--border));
+}
+
+.acct-identity-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+
+.acct-identity-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--acct, var(--text-primary));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Monospace, because this is an account code and not a word. */
+.acct-identity-broker {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Small colour dot, reused by the "Viewing" label and the leaderboard rows. */
+.acct-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: var(--acct, var(--fill-neutral));
+}
+
+/* ---- Selected-account figures, in the header beside the switcher ----
+   Compact by necessity: the header already carries the title, identity badge,
+   switcher, theme button and four badges (one of which is the market badge). Labels are 10px so the whole group
+   stays around 340px and the header only wraps on genuinely narrow viewports. */
+.account-stats {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 3px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+}
+
+.astat { display: flex; flex-direction: column; line-height: 1.25; }
+
+.astat-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.astat-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+/* .positive/.negative/.neutral set colour only, so Day P&L keeps the same
+   green/red semantics it has everywhere else on the dashboard. */
+.astat-value.positive { color: var(--accent-green); }
+.astat-value.negative { color: var(--accent-red); }
+
+@media (max-width: 900px) {
+    /* Drop the surrounding chrome and tighten up rather than hiding the
+       figures — they're the point of the feature.
+       The identity badge is deliberately NOT stripped here: it lives beside the
+       page title now, not in the header, so it isn't competing for header width
+       and keeps its chrome at every size. */
+    .account-stats { border: none; background: none; padding: 3px 0; gap: 10px; }
+}
+
+/* ---- Account-switch flash ----
+   box-shadow ONLY. It paints outside the border box and takes no part in
+   layout, so the header cannot reflow or change height mid-animation — and it
+   is already wrap-sensitive (64px at 1600, 109px at 1100, 172px at 600).
+   Animating border, padding or width here would make the whole bar jump.
+   0.6s rather than the file's usual 0.1-0.3s because this is an attention cue,
+   not a hover transition: it has to outlast a glance away. */
+@keyframes acct-flash {
+    0%   { box-shadow: 0 0 0 0   var(--acct-tint, var(--accent-blue-soft)); }
+    30%  { box-shadow: 0 0 0 6px var(--acct-tint, var(--accent-blue-soft)); }
+    100% { box-shadow: 0 0 0 6px transparent; }
+}
+.acct-flashing { animation: acct-flash 0.6s ease-out; }
 
 .badge {
     padding: 4px 12px;
@@ -50,40 +462,621 @@ header h1 {
     text-transform: uppercase;
 }
 
-.badge-green { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
-.badge-red { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
-.badge-blue { background: rgba(88, 166, 255, 0.2); color: var(--accent-blue); }
-.badge-yellow { background: rgba(210, 153, 34, 0.2); color: var(--accent-yellow); }
+.badge-green { background: var(--tint-green); color: var(--accent-green); }
+.badge-red { background: var(--tint-red); color: var(--accent-red); }
+.badge-blue { background: var(--tint-blue); color: var(--accent-blue); }
+.badge-yellow { background: var(--tint-yellow); color: var(--accent-yellow); }
+/* Unknown/indeterminate. Neutral on purpose: a dashboard that cannot read the
+   safety layer, or a clock it cannot reach, must never paint green or assert
+   OPEN/CLOSED. Both are existing theme tokens, so the palette audit is
+   unaffected. */
+.badge-neutral { background: var(--bg-primary); color: var(--text-secondary); }
 
-#countdown-bar {
-    text-align: center;
-    padding: 12px;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
+/* The merged market badge carries a monospace countdown inside a normal badge,
+   so the digits don't jitter as they tick. Slightly roomier than a plain badge
+   because it holds two clauses ("CLOSED · 21:07:03 TO OPEN"). */
+#market-badge {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
-
-.countdown {
-    font-size: 28px;
-    font-weight: 700;
+#market-badge .mkt-time {
     font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
-    letter-spacing: 2px;
+    letter-spacing: 0.3px;
 }
 
-.countdown.open {
-    color: var(--accent-green);
-}
-
-.countdown.closed {
-    color: var(--accent-yellow);
+.layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 24px;
+    /* The rail is position:fixed, so it no longer occupies flex space — reserve
+       its width here or the content would slide underneath it. */
+    padding-left: calc(62px + 24px);
+    /* Must share the rail's duration AND curve (0.18s ease): both start on the
+       same class flip, so with identical curves `padding-left - railWidth`
+       stays exactly 24px through every intermediate frame. Mismatch them and
+       the content dips under the rail mid-animation. */
+    transition: padding-left 0.18s ease;
 }
 
 main {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px;
+    flex: 1;
+    min-width: 0;             /* let grid children shrink instead of overflowing */
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
+}
+
+/* Right rail: key bot components (collapses to icons) */
+/* Icon rail: icons only by default, expands to labels on hover.
+   The expanded panel overlays the content (absolute) so nothing reflows. */
+/* Pinned to the VIEWPORT's left edge, not to the layout's.
+   It used to be a flex child of .layout, which is `max-width: 1600px;
+   margin: 0 auto; padding: 24px` — so on any window wider than ~1650px the rail
+   drifted inward with the centred content and left a band of background to its
+   left. position: fixed detaches it from that box so it hugs the edge at every
+   window size. --header-h is measured in JS (trackHeaderHeight) because the
+   header wraps from ~64px to ~185px depending on width; a hardcoded offset
+   would either overlap the header or float below it. */
+.component-rail {
+    position: fixed;
+    left: 0;
+    top: var(--header-h, 64px);
+    bottom: 0;
+    width: 62px;
+    z-index: 40;
+    /* The rail can be taller than the viewport on short windows. Scroll it
+       rather than clipping items — but drop the clip while expanded, or the
+       62px-wide container would cut off the 288px panel. */
+    overflow-x: hidden;
+    overflow-y: auto;
+    /* Only the pinned state changes this width; hover leaves the container at
+       62px and overlays instead, so this is inert outside pinned. */
+    transition: width 0.18s ease;
+}
+.component-rail:hover { overflow: visible; }
+/* Collapsed: no surface at all, so the icons sit directly on the page
+   background instead of in a floating white card. */
+.rail-panel {
+    width: 62px;
+    height: 100%;
+    background: none;
+    /* A 1px border on EVERY side, transparent except the right. The border box
+       must be identical in all three states (collapsed / hover / pinned) or the
+       content box origin shifts and every icon moves with it. This previously
+       read `border: none; border-right: 1px`, which made the collapsed content
+       box start 1px left and 1px high of the hover panel's — a measured 1px jump
+       in both axes on hover. It also restores the 13px in the arithmetic below:
+       1px border + 12px padding. */
+    border: 1px solid transparent;
+    border-right-color: var(--border);
+    border-radius: 0;
+    /* Same 12px horizontal padding as the expanded state below, so the icons
+       keep their x position when the panel opens — that no-movement property is
+       deliberate and verified. */
+    padding: 12px;
+    overflow: hidden;
+    transition: width 0.18s ease;
+}
+/* Expanded: it now overlaps real content, so it needs a surface to stay
+   readable — that is the one state where the card look is doing a job. */
+.component-rail:hover .rail-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 288px;
+    height: auto;
+    min-height: 100%;
+    padding: 12px;
+    background: var(--bg-card);
+    /* Only the COLOUR changes from the base rule — the 1px border box is already
+       there on all four sides, so nothing shifts when this state applies. */
+    border-color: var(--border);
+    border-radius: 0 10px 10px 0;
+    z-index: 50;
+    box-shadow: var(--shadow-lg);
+}
+
+/* justify-content stays flex-start in both states so the title doesn't slide
+   sideways as it fades in. */
+.rail-head {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;                  /* separates .rail-pin from the title */
+    padding: 4px 6px 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+    min-height: 20px;
+}
+
+/* Pin toggle — FIRST child of .rail-head; see index.html for why that is not
+   negotiable. 24x24 is the collapsed head's exact content width, and it puts
+   the glyph centre in the same column as every .rail-icon below.
+
+   flex: 0 0 24px is LOAD-BEARING. .rail-head is a flex container and
+   .rail-title is a nowrap sibling whose min-content width (~44px) already
+   exceeds the ~25px available; without a fixed basis the flex algorithm shrinks
+   this button in the COLLAPSED state only — a state-dependent size change,
+   which is exactly what the no-movement contract forbids. */
+.rail-pin {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* visibility, never display:none, at ANY width. The 24px box must persist
+       even where pinning is unavailable, or every icon below jumps when a
+       breakpoint is crossed. visibility also takes it out of the tab order and
+       the a11y tree, which is right: below 1100px there is nothing for it to do. */
+    visibility: hidden;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    padding: 0;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+/* Glyph from CSS, not the DOM: html.rail-pinned is set by the inline <head>
+   script, so the right arrow paints on the first frame with no JS. Swapping
+   ::before content cannot move anything — the button is a fixed 24x24 flex box
+   and the glyph is centred inside it. */
+.rail-pin::before { content: '\00BB'; }          /* >> push the rail open */
+.rail-pin:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.rail-pin:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+
+/* Same reasoning as .rail-text below: the title must keep occupying its line in
+   the collapsed state, or the head shrinks to its 20px min-height and the whole
+   list (and every icon with it) jumps down by ~16px on hover. nowrap matters —
+   "MENU" is wider than the 36px collapsed content box and would otherwise wrap
+   to two lines, making the head a different height again. */
+.rail-title {
+    visibility: hidden;
+    opacity: 0;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    transition: opacity 0.18s ease;
+}
+.component-rail:hover .rail-title { visibility: visible; opacity: 1; }
+
+.rail-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+
+/* Icons must not move between the collapsed and expanded rail, in either axis.
+   That requires BOTH states to lay out identically:
+     - Horizontal: the item keeps the same padding in both states, so the icon's
+       x never changes. 6px is chosen so the icon lands dead-centre of the 62px
+       collapsed panel: 13px (panel border+padding) + 6px + 12px (half icon) =
+       31px = 62/2. Changing --rail-w or the panel padding breaks that centring.
+     - Vertical: .rail-text stays in the layout at its full expanded width even
+       when collapsed (visibility, NOT display:none), so every row computes the
+       same height in both states. The panel's overflow:hidden clips the text
+       while the rail is narrow.
+   The cost, accepted deliberately: the collapsed rail is as tall as the
+   expanded one, so the icons sit further apart than a pure icon strip would. */
+.rail-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 10px 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    position: relative;        /* containing block for .rail-grip; layout-neutral */
+    transition: background 0.15s;
+}
+.rail-item:hover { background: var(--bg-secondary); }
+.rail-item.active { background: var(--accent-blue-soft); box-shadow: inset 3px 0 0 var(--accent-blue); }
+.rail-icon { font-size: 20px; width: 24px; text-align: center; flex-shrink: 0; }
+/* Fixed width + no shrink: the text must wrap identically in both states or the
+   row heights diverge and the icons drift vertically again. 214px is the width
+   it gets in the expanded panel (288 - 24 panel padding - 2 border - 12 item
+   padding - 24 icon - 12 gap). */
+.rail-text {
+    display: flex;
+    flex: 0 0 214px;
+    flex-direction: column;
+    gap: 2px;
+    white-space: normal;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+.component-rail:hover .rail-text { visibility: visible; opacity: 1; }
+.rail-icon { line-height: 1.2; }
+.rail-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.rail-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.35; overflow-wrap: break-word; }
+
+/* ---- Drag handle ----
+   ABSOLUTE, and parked in .rail-panel's own 12px right padding gutter:
+   right:-12px puts its right edge exactly on the panel's padding box, which is
+   the clip edge of that panel's overflow:hidden, in EVERY state:
+       collapsed  item 13..49  -> grip 49..61  (icon ends at 43: 6px clear, 0 clipped)
+       expanded   item 13..275 -> grip 275..287 (.rail-text ends at 269)
+   Being absolute it is not a flex item at all, so it CANNOT shift .rail-icon —
+   the 31px centring arithmetic above is untouched. top:8/height:28 centres it on
+   the icon's y=22 in every state and at every breakpoint (item padding-top is
+   10px in both the base rule and the <=900px one). */
+.rail-grip {
+    position: absolute;
+    right: -12px;
+    top: 8px;
+    width: 12px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 28px;
+    text-align: center;
+    /* Hidden by default and revealed on row hover. opacity, NOT display or
+       visibility toggling of the box, so nothing about the row's geometry can
+       depend on the grip's state. */
+    opacity: 0;
+    cursor: grab;
+    transition: opacity 0.15s;
+    touch-action: none;        /* required for pointer-drag on touch devices */
+}
+.rail-grip::before { content: '\22EE\22EE'; letter-spacing: -2px; }
+.rail-item:hover .rail-grip { opacity: 0.75; }
+.rail-grip:hover { opacity: 1 !important; color: var(--text-primary); }
+.rail-grip:focus-visible { opacity: 1; outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+.rail-grip:active { cursor: grabbing; }
+
+/* The row being dragged. Inset shadow rather than a border — same technique as
+   .rail-item.active — so the box model, and therefore every other row's
+   position, is untouched. */
+.rail-item.is-dragging {
+    opacity: 0.5;
+    background: var(--accent-blue-soft);
+    box-shadow: inset 0 0 0 2px var(--accent-blue);
+}
+/* Where it will land. Also inset-only. */
+.rail-item.is-drop-target {
+    box-shadow: inset 0 3px 0 0 var(--accent-blue);
+}
+.rail-item.is-drop-target-after {
+    box-shadow: inset 0 -3px 0 0 var(--accent-blue);
+}
+
+/* ---- Held open during a drag ----
+   The rail expands purely on :hover, so without this the panel would snap back
+   to 62px the moment the pointer moved past x=288 mid-gesture and the dragged
+   row would vanish under the cursor.
+
+   These selectors DELIBERATELY omit the `html` prefix that the pinned block
+   uses. `.rail-dragging .component-rail .rail-panel` is (0,3,0): it ties with
+   the :hover rule — same declarations, so the tie is inert — and LOSES to
+   `html.rail-pinned ...` at (0,3,1), which is required, because pinned keeps the
+   panel position:static and must stay that way. The pinned block's prefix exists
+   to win; this block's absence of one exists to lose. */
+.rail-dragging .component-rail {
+    /* Hover-expanded has `overflow: visible`, i.e. no scroll container at all —
+       restore one so a drag near the bottom of an over-tall rail can scroll. */
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.rail-dragging .component-rail .rail-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 288px;
+    height: auto;
+    min-height: 100%;
+    padding: 12px;
+    background: var(--bg-card);
+    border-color: var(--border);
+    border-radius: 0 10px 10px 0;
+    z-index: 50;
+    box-shadow: var(--shadow-lg);
+}
+.rail-dragging .component-rail .rail-title,
+.rail-dragging .component-rail .rail-text { visibility: visible; opacity: 1; }
+/* No text selection anywhere while dragging, and no hover flicker on the rows. */
+.rail-dragging { user-select: none; }
+.rail-dragging .rail-item:hover { background: none; }
+.rail-dragging .rail-item.is-dragging:hover { background: var(--accent-blue-soft); }
+
+/* ---- Reset order control ----
+   Sits in .rail-head beside the pin. visibility, never display:none — the head
+   is the most height-sensitive box in the rail, and every icon below it would
+   shift if this box came and went. */
+.rail-reset {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    visibility: hidden;
+}
+.rail-reset:hover { color: var(--accent-red); border-color: var(--accent-red); }
+.rail-reset:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+
+/* ============================================================
+   PINNED RAIL — html.rail-pinned, set pre-paint from localStorage
+   ------------------------------------------------------------
+   Hover-peek above is an OVERLAY: the 62px container keeps its width and the
+   panel goes position:absolute over the content. Pinned is the opposite — the
+   CONTAINER widens to 288px, the panel stays in flow, and .layout's left
+   padding grows to match, so nothing is ever covered.
+
+   The whole thing sits inside min-width:1100px, which buys three things:
+     1. Below 1100 these rules simply do not apply, so the rail folds back to
+        icons and hover-peek behaves exactly as it does unpinned — no undo
+        rules, no resize listener, and re-pinning on widening is free.
+     2. The max-width:900px block at the end of the file is never in
+        contention: this block is already inert there, so its
+        `.layout { padding-left: 24px }` and static rail win unopposed.
+     3. 288 + 24 + 24 of chrome leaves main 764px at 1100px, i.e. 374px
+        columns — the width the 1fr 1fr grid already ships at a ~850px
+        unpinned window. Below that the cards start to break, hence 1100.
+
+   Every selector is prefixed `html.rail-pinned`, scoring (0,3,x), so it beats
+   the four :hover rules above on SPECIFICITY rather than source order. This
+   block can be moved anywhere in the file, and hover-while-pinned resolves to
+   pinned automatically. If a rule here ever seems to need !important, the
+   prefix is wrong.
+   ============================================================ */
+@media (min-width: 1100px) {
+    /* The affordance exists only where pinning does. `html` is present purely
+       to out-specify the (0,1,0) base rule without relying on source order. */
+    html .rail-pin { visibility: visible; }
+    html.rail-pinned .rail-pin::before { content: '\00AB'; }   /* << unpin */
+
+    /* THE CONTENT SHIFT — 288 + 24, mirroring the collapsed 62 + 24. Because
+       .layout is max-width:1600 + margin:auto this both moves main's left edge
+       right and narrows it by 226px; main.x is always >= 312 while the rail
+       ends at 288, so content can never sit underneath it. */
+    html.rail-pinned .layout { padding-left: calc(288px + 24px); }
+
+    html.rail-pinned .component-rail { width: 288px; }
+
+    /* Beats `.component-rail:hover { overflow: visible }`. Pinned still wants
+       the y-scroll, and there is nothing to escape from at 288px wide. */
+    html.rail-pinned .component-rail:hover {
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    /* Undoes the overlay: back in flow, and no card chrome — nothing is being
+       covered, so nothing needs lifting off the page. That is the same
+       reasoning that leaves the collapsed rail surfaceless.
+       The 1px transparent border box from the base rule is inherited, so the
+       content box still starts at 13px and no icon moves.
+       height:auto + min-height:100% so the container's overflow-y has
+       something to scroll: the base height:100% makes scrollHeight equal
+       clientHeight, which strands the last items on a short window. */
+    html.rail-pinned .component-rail .rail-panel {
+        position: static;
+        width: 100%;
+        height: auto;
+        min-height: 100%;
+        overflow: visible;
+        background: none;
+        border-radius: 0;
+        box-shadow: none;
+        z-index: auto;
+    }
+
+    /* Companions the two :hover reveals rather than editing them — those fire
+       on hover only, and pinned must show the labels with no pointer near the
+       rail. .rail-text keeps its flex: 0 0 214px untouched: 214 is derived from
+       288, which IS the pinned width, and an absolute basis with no grow or
+       shrink is what makes every row compute the same height in all states. */
+    html.rail-pinned .component-rail .rail-title,
+    html.rail-pinned .component-rail .rail-text { visibility: visible; opacity: 1; }
+}
+
+/* Page header + full-width detail pages */
+.page-head {
+    grid-column: span 2;
+    padding: 2px 2px 0;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.page-head h1 { font-size: 22px; font-weight: 700; }
+
+/* Names the account every figure on the page belongs to. Lives in .page-head
+   because that element has no data-page, so navigate() never hides it and the
+   label is present on all pages, not just Overview. */
+/* "Viewing" + the account identity badge. inline-flex so the word sits centred
+   against the badge, which is taller than the text beside it. */
+.viewing-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+#section-cards-wrap,
+#schedule-section,
+[data-page="compare"],
+[data-page="signals"],
+[data-page="ml"],
+[data-page="safety"],
+[data-page="eod"],
+[data-page="notifications"] { grid-column: span 2; }
+
+/* Account switcher (header) */
+.account-switcher {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 5px 10px;
+    cursor: pointer;
+    max-width: 220px;
+}
+.account-switcher:focus { outline: none; border-color: var(--accent-blue); }
+
+/* ---- Theme picker ---- */
+.theme-picker { position: relative; }
+
+.theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 5px 10px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+.theme-btn:hover { border-color: var(--accent-blue); }
+.theme-btn:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+
+.theme-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 200;
+    min-width: 208px;
+    padding: 6px;
+    list-style: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-md);
+}
+.theme-menu.show { display: block; }
+
+.theme-opt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 8px;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.theme-opt:hover { background: var(--accent-blue-soft); }
+.theme-opt:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -2px; }
+.theme-opt[aria-checked="true"] { font-weight: 700; }
+.theme-opt-name { flex: 1; }
+/* Tick column is always reserved so the labels don't shift when selection moves. */
+.theme-opt-tick { width: 12px; color: var(--accent-blue); }
+
+/* The swatch carries its own data-theme, so these var() lookups resolve to
+   THAT theme's palette — the preview stays correct with no colours in JS. */
+.theme-swatch {
+    display: inline-flex;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+}
+.theme-swatch i { display: block; width: 11px; height: 18px; }
+.theme-swatch i:nth-child(1) { background: var(--bg-primary); }
+.theme-swatch i:nth-child(2) { background: var(--bg-card); }
+.theme-swatch i:nth-child(3) { background: var(--accent-blue); }
+.theme-swatch i:nth-child(4) { background: var(--accent-green); }
+
+.page-intro { color: var(--text-secondary); font-size: 14px; margin-bottom: 16px; max-width: 72ch; }
+
+/* Overview section cards */
+.section-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+}
+.section-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.05s;
+}
+.section-card:hover { border-color: var(--accent-blue); }
+.section-card:active { transform: translateY(1px); }
+.section-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.section-card-icon { font-size: 18px; }
+.section-card-name { font-weight: 600; font-size: 15px; }
+.section-card-stat { font-size: 12px; color: var(--text-secondary); line-height: 1.4; min-height: 34px; }
+.section-card-link { font-size: 12px; color: var(--accent-blue); margin-top: 8px; }
+
+/* Indicator chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+/* Performance Summary */
+#summary-section { grid-column: span 2; }
+.summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+}
+.summary-col-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-open { background: var(--accent-blue); }
+.dot-hist { background: var(--accent-green); }
+
+.winrate-bar {
+    margin-top: 16px;
+    height: 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.winrate-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-green);
+    border-radius: 4px;
+    transition: width 0.3s ease;
 }
 
 .card {
@@ -102,9 +1095,30 @@ main {
     letter-spacing: 0.5px;
 }
 
+/* The Account card's h2 was the bare word "Account", which says nothing once
+   more than one account exists. text-transform is reset because .card h2
+   uppercases everything and the account name should read as configured.
+   On the account colour rather than blue: the pill isn't interactive, and blue
+   means interactive everywhere else in this file, so this also returns blue to
+   its one job. */
+.account-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--acct-tint, var(--tint-blue));
+    color: var(--acct, var(--accent-blue));
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: none;
+    vertical-align: middle;
+}
+
 #account-section,
 #stats-section { grid-column: span 1; }
 
+#limits-section,
 #controls-section,
 #positions-section,
 #orders-section,
@@ -169,7 +1183,7 @@ main {
 .safety-reset-hint {
     margin-top: 14px;
     padding: 10px 12px;
-    background: rgba(248, 81, 73, 0.1);
+    background: var(--tint-red);
     border: 1px solid var(--accent-red);
     border-radius: 6px;
     color: var(--accent-red);
@@ -189,7 +1203,7 @@ main {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--overlay);
     z-index: 1000;
     display: flex;
     align-items: flex-start;
@@ -204,7 +1218,7 @@ main {
     border-radius: 10px;
     max-width: 720px;
     width: 100%;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
 }
 
 .modal-header {
@@ -236,17 +1250,174 @@ main {
 
 .modal-body { padding: 20px; }
 
-/* Operator Overrides form (inside the Safety modal) */
-.overrides {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border);
+/* ==================== Account-switch toast ====================
+   Fixed to the viewport and above the whole z-index ladder (rail 40/50,
+   autocomplete 100, theme menu 200, modal 1000) so no card can clip it.
+
+   Anchored BOTTOM-right, not top-right, deliberately. Top-right sits directly
+   over the EMERGENCY STOP button and the header's SAFE/HALTED badge, and a
+   kill-switch control must never be covered — not even for the five seconds
+   this is on screen. Bottom-right can only ever overlap table rows, which are
+   re-readable the moment the toast clears. It also sidesteps the header's
+   height changing from 61px to 166px as it flex-wraps. */
+.toast-region {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 1100;
+    width: min(340px, calc(100vw - 32px));
+    pointer-events: none;      /* the empty region must not swallow clicks */
 }
-.overrides h3 { margin-bottom: 12px; }
-.overrides .form-row { margin-bottom: 12px; }
-.ov-actions { flex: 0 0 auto; min-width: auto; }
-.ov-buttons { display: flex; gap: 8px; }
-#ov-msg { margin-top: 6px; min-height: 18px; }
+
+.toast {
+    pointer-events: auto;      /* ...but the toast itself stays clickable */
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-blue);
+    border-radius: 10px;
+    box-shadow: var(--shadow-lg);
+    padding: 12px 14px;
+    cursor: pointer;
+    animation: toast-in 0.18s ease;
+}
+.toast.error { border-left-color: var(--accent-red); }
+
+/* JS adds .toast-leaving, waits TOAST_EXIT_MS, then removes the node.
+   `forwards` holds the faded end state so there's no flash before removal. */
+.toast.toast-leaving { animation: toast-out 0.18s ease forwards; }
+
+.toast-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+
+.toast-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--text-secondary);
+    font-family: inherit;
+    cursor: pointer;
+}
+.toast-close:hover { color: var(--accent-red); }
+.toast-close:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+
+/* No bottom margin: .toast-sub is the last content in every toast variant —
+   the figures moved to the header — and .toast-timer supplies its own spacing. */
+.toast-sub { font-size: 12px; color: var(--text-secondary); }
+
+/* Countdown to auto-dismiss. Animated in CSS rather than ticked from JS so it
+   costs nothing per frame; duration is set inline to match the JS timer. */
+.toast-timer {
+    height: 2px;
+    margin-top: 10px;
+    border-radius: 2px;
+    background: var(--tint-blue);
+    overflow: hidden;
+}
+.toast-timer i {
+    display: block;
+    height: 100%;
+    background: var(--accent-blue);
+    animation: toast-timer 5s linear forwards;
+}
+.toast.error .toast-timer { background: var(--tint-red); }
+.toast.error .toast-timer i { background: var(--accent-red); }
+
+@keyframes toast-in  { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+@keyframes toast-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(12px); } }
+@keyframes toast-timer { from { width: 100%; } to { width: 0; } }
+
+/* Reduced motion: the toast still appears and still auto-dismisses — it just
+   doesn't slide, and the timer bar sits still instead of draining. */
+@media (prefers-reduced-motion: reduce) {
+    .toast, .toast.toast-leaving { animation: none; }
+    .toast-timer i { animation: none; width: 100%; }
+    /* Pinning slides the rail and ~226px of page content at once — a large slab
+       of the viewport in motion, which is what this query exists to stop. The
+       states are unchanged, they just arrive instantly. The .rail-title /
+       .rail-text opacity fades are deliberately left alone: a cross-fade is not
+       motion, and killing it would make the hover labels pop rather than
+       resolve. */
+    .layout, .component-rail, .rail-panel { transition: none; }
+    .rail-grip { transition: none; }
+    /* The switch cue still happens, it just doesn't bloom: a static ring
+       appears and is cleared by the JS timer. Note animationend never fires
+       when the animation is suppressed — which is exactly why
+       flashAccountChange() clears the class on a timer, not a listener. */
+    .acct-flashing {
+        animation: none;
+        box-shadow: 0 0 0 3px var(--acct-tint, var(--accent-blue-soft));
+    }
+}
+
+@media (max-width: 640px) {
+    .toast-region { left: 16px; right: 16px; width: auto; }
+}
+
+/* Risk Limits card (editable, lock to apply) */
+.lock-btn {
+    float: right;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+}
+.lock-btn:hover { border-color: var(--accent-blue); }
+.lock-btn.editing { border-color: var(--accent-green); color: var(--accent-green); }
+
+.limit-input {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent-blue);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 22px;
+    font-weight: 700;
+}
+.limit-input:focus { outline: none; border-color: var(--accent-green); }
+
+.metric .value.fixed { color: var(--text-secondary); }
+
+.metric-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.35;
+    margin-top: 2px;
+}
+#limits-grid .metric { align-content: start; }
+
+.limits-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+.btn-reset-limits {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+#limits-msg { margin-top: 8px; min-height: 18px; }
 
 .metrics-grid {
     display: grid;
@@ -281,6 +1452,28 @@ main {
     flex-wrap: wrap;
 }
 
+/* Bot control bar (top of Overview) */
+.control-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.control-bar .controls { margin: 0; }
+.control-bar-status { display: flex; align-items: center; gap: 12px; }
+.control-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    flex-shrink: 0;
+}
+.control-dot.running { background: var(--accent-green); box-shadow: 0 0 0 4px var(--glow-green); }
+.control-dot.stopped { background: var(--accent-red); box-shadow: 0 0 0 4px var(--glow-red); }
+.control-state { font-size: 16px; font-weight: 700; }
+.control-sub { font-size: 12px; color: var(--text-secondary); }
+
 .btn {
     padding: 10px 20px;
     border: none;
@@ -293,11 +1486,11 @@ main {
 
 .btn:hover { opacity: 0.85; }
 
-.btn-start { background: var(--accent-green); color: #fff; }
-.btn-stop { background: var(--text-secondary); color: #fff; }
-.btn-scan { background: var(--accent-blue); color: #fff; }
-.btn-emergency { background: var(--accent-red); color: #fff; font-size: 16px; }
-.btn-small { padding: 6px 14px; font-size: 13px; background: var(--accent-blue); color: #fff; }
+.btn-start { background: var(--fill-green); color: var(--on-accent); }
+.btn-stop { background: var(--fill-neutral); color: var(--on-accent); }
+.btn-scan { background: var(--fill-blue); color: var(--on-accent); }
+.btn-emergency { background: var(--fill-red); color: var(--on-accent); font-size: 16px; }
+.btn-small { padding: 6px 14px; font-size: 13px; background: var(--fill-blue); color: var(--on-accent); }
 
 table {
     width: 100%;
@@ -320,14 +1513,66 @@ th {
 td { font-size: 14px; }
 td.empty { text-align: center; color: var(--text-secondary); padding: 24px; }
 
+/* Marks a volume ratio that was NOT measured over a completed session — either
+   projected from an in-progress day or taken from the previous close. */
+.scan-basis {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--tint-blue);
+    color: var(--accent-blue);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    vertical-align: middle;
+}
+
+/* ---- Compare leaderboard: which row am I actually looking at? ----
+   The table had no id-bearing markup at all — updateCompare() rendered the
+   names and threw r.id away — so nothing distinguished the selected account's
+   row from the other two. */
+
+/* The 3px gutter is reserved on EVERY first cell, selected or not, so marking a
+   row cannot shift its contents sideways. */
+#compare-table th:first-child,
+#compare-table td:first-child { border-left: 3px solid transparent; }
+
+#compare-table tbody tr.is-current { background: var(--acct-tint, var(--accent-blue-soft)); }
+#compare-table tbody tr.is-current td:first-child { border-left-color: var(--acct, var(--fill-neutral)); }
+
+/* Colour is never the only cue: this spells it out in words, and the row also
+   carries aria-current="true". */
+.acct-viewing-chip {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: var(--acct-tint, var(--accent-blue-soft));
+    color: var(--acct, var(--text-secondary));
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
 .watchlist-controls {
     display: flex;
     gap: 8px;
     margin-bottom: 12px;
 }
 
+/* The wrapper became the flex item when the input was nested inside it for the
+   autocomplete, so flex:1 has to live here or the field collapses to its
+   intrinsic width. min-width:0 lets it actually shrink on narrow viewports. */
+.watchlist-controls .autocomplete-wrapper { flex: 1; min-width: 0; }
+
 .watchlist-controls input {
-    flex: 1;
+    display: block;   /* kills the inline-block baseline gap beneath the input —
+                         the dropdown has border-top:none and butts against it */
+    width: 100%;      /* replaces the flex:1 that moved to the wrapper */
     padding: 8px 12px;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
@@ -362,6 +1607,66 @@ td.empty { text-align: center; color: var(--text-secondary); padding: 24px; }
 
 .watchlist-tag .remove:hover { color: var(--accent-red); }
 
+/* ---- "In other accounts": symbols another account watches that this one
+   doesn't. A to-do list, not an inventory — symbols already held are never
+   repeated, so an empty row means there is nothing to copy. ---- */
+.watchlist-others { margin-top: 18px; }
+
+.wl-others-head {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    margin-bottom: 10px;
+}
+
+.wl-other-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 0;
+}
+
+/* Fixed width so the account names form a column and the chips line up. */
+.wl-other-name {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    width: 96px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--acct, var(--text-primary));
+}
+
+.wl-other-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.wl-other-none { font-size: 12px; color: var(--text-secondary); font-style: italic; }
+
+/* Deliberately styled as an ADD affordance (green, +) rather than a neutral tag,
+   so it can't be mistaken for the removable tags of your own list above. */
+.wl-add-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border: 1px dashed var(--accent-green);
+    border-radius: 16px;
+    background: var(--tint-green);
+    color: var(--accent-green);
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.wl-add-chip:hover { opacity: 0.75; }
+.wl-add-chip:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+
+.wl-add-all { flex-shrink: 0; }
+
 /* Autocomplete Dropdown */
 .autocomplete-wrapper {
     position: relative;
@@ -380,7 +1685,7 @@ td.empty { text-align: center; color: var(--text-secondary); padding: 24px; }
     border-radius: 0 0 6px 6px;
     max-height: 280px;
     overflow-y: auto;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-md);
 }
 
 .autocomplete-dropdown.show {
@@ -391,11 +1696,29 @@ td.empty { text-align: center; color: var(--text-secondary); padding: 24px; }
     padding: 8px 12px;
     cursor: pointer;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;   /* line 1: symbol/name/exchange · line 2: description */
+    gap: 2px;
     border-bottom: 1px solid var(--border);
     transition: background 0.1s;
 }
+
+/* The original single-line layout, now the first line within each row. */
+.autocomplete-item .stock-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* One-line "what this company does", filled in after the row is already on
+   screen. :empty collapses it entirely, so a symbol with no profile (many ETFs)
+   and a symbol whose lookup hasn't landed yet both render as a normal single-line
+   row — no placeholder, and no gap that appears and then closes. */
+.autocomplete-item .stock-desc {
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: var(--text-secondary);
+}
+.autocomplete-item .stock-desc:empty { display: none; }
 
 .autocomplete-item:last-child {
     border-bottom: none;
@@ -403,7 +1726,7 @@ td.empty { text-align: center; color: var(--text-secondary); padding: 24px; }
 
 .autocomplete-item:hover,
 .autocomplete-item.active {
-    background: rgba(88, 166, 255, 0.1);
+    background: var(--accent-blue-soft);
 }
 
 .autocomplete-item .stock-symbol {
@@ -429,6 +1752,36 @@ td.empty { text-align: center; color: var(--text-secondary); padding: 24px; }
     margin-left: 8px;
     opacity: 0.6;
 }
+
+/* A row for a symbol this account already watches: still shown, so you can see
+   it IS there, but inert. Muted rather than green — green is this card's ADD
+   affordance (.wl-add-chip) and must not also read as "already added". */
+.autocomplete-item.is-disabled { cursor: default; opacity: 0.65; }
+.autocomplete-item.is-disabled:hover { background: transparent; }
+
+.autocomplete-item .stock-flag {
+    flex-shrink: 0;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* "No matches found" / "Symbol search unavailable". These carry no data-index,
+   so they're unreachable by arrow keys — this makes that visible. (Was an inline
+   style attribute in the JS.) */
+.autocomplete-item.is-notice { cursor: default; color: var(--text-secondary); }
+.autocomplete-item.is-notice:hover { background: transparent; }
+
+/* The matched run inside a symbol or company name. */
+.autocomplete-item .ac-match { color: var(--text-primary); font-weight: 700; }
 
 /* Schedule Form */
 .schedule-form {
@@ -505,8 +1858,8 @@ details summary {
 .btn-cancel {
     padding: 4px 10px;
     font-size: 12px;
-    background: var(--accent-red);
-    color: #fff;
+    background: var(--fill-red);
+    color: var(--on-accent);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -522,10 +1875,43 @@ footer {
     border-top: 1px solid var(--border);
 }
 
+@media (max-width: 900px) {
+    /* Rail returns to normal flow and stacks above the content, so undo the
+       fixed positioning AND the left padding that reserved room for it. */
+    .layout { flex-direction: column; padding-left: 24px; }
+    .component-rail {
+        width: 100%;
+        position: static;
+        top: auto;
+        bottom: auto;
+        overflow: visible;
+    }
+    .rail-panel,
+    .component-rail:hover .rail-panel {
+        position: static;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card);
+        box-shadow: none;
+    }
+    .rail-title { visibility: visible; opacity: 1; }
+    /* Rail is permanently expanded here, so reveal the text and drop the fixed
+       214px basis — it should fill the full-width panel instead of clipping. */
+    .rail-text { visibility: visible; opacity: 1; flex: 1 1 auto; min-width: 0; }
+    .rail-head { justify-content: flex-start; }
+    .rail-item { justify-content: flex-start; padding: 10px; }
+}
+
 @media (max-width: 768px) {
     main { grid-template-columns: 1fr; }
+    .summary-grid { grid-template-columns: 1fr; }
+    #summary-section,
     #account-section,
     #stats-section,
+    #limits-section,
     #controls-section,
     #positions-section,
     #orders-section,
