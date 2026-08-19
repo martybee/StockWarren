@@ -11,6 +11,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Language**: Pure Python
 - **Account**: Paper trading account
 
+## Planning Docs (read at session start)
+
+- [docs/PLAN.md](docs/PLAN.md) — the living plan (v0.5-draft): where the project is and the milestone arc.
+- [docs/SCHEMA.md](docs/SCHEMA.md) — spec for every persisted file and API payload.
+- [docs/milestones/](docs/milestones/) — one work order per milestone (M1–M8).
+- [docs/SESSION_NOTES.md](docs/SESSION_NOTES.md) — append-only session log + gotchas; add an entry after substantial sessions.
+
+Current drafts were written by Claude (2026-08-19) from the codebase; Marty edits them and will supply final source docs — treat them as living, not final.
+
 ## Critical Naming Note
 
 **Avoid naming any local module `alpaca/`** — it shadows the installed `alpaca-py` package. Our wrapper lives in `broker/` for this reason. If you create new code that imports from Alpaca, use:
