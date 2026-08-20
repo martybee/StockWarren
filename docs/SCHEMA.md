@@ -1,8 +1,9 @@
 # StockWarren — Data & API Schema Spec
 
-> **Version:** v0.1-draft — drafted 2026-08-19 by Claude by inspecting the live
-> files and API responses. This documents shapes **as they exist today**; M2 turns
-> it into enforced validation. Marty may replace it with a final source spec.
+> **Version:** v0.2-draft — v0.1 drafted 2026-08-19 by Claude from the live files
+> and API responses; v0.2 amended the same day per [CHART_PLAN.md](CHART_PLAN.md) §14
+> (database clause, UTC-for-new-stores convention, "New stores" section). M2 turns
+> this into enforced validation. Shared constitution for both tracks (engine M, chart C).
 
 Purpose: the single source of truth for every file StockWarren persists and every
 API payload the dashboard depends on. If code and this spec disagree, that's a bug
@@ -10,9 +11,15 @@ in one of them — fix whichever is wrong, deliberately.
 
 ## Conventions
 
-- All persisted state is **flat files** under `data/` and `logs/`; there is no database.
+- **Legacy state** is **flat files** under `data/` and `logs/` (JSON + pickles). It stays
+  exactly as it is — never migrated, renamed, or restructured. **New stores** (bars,
+  signals, trades, runs — see "New stores" below) live in **SQLite** at
+  `data/stockwarren.db`, the one database in the system; the chart, the Compare page,
+  ML training samples, and the decision log are views over its rows.
 - Alpaca is the source of truth for positions, orders, and equity — never persisted locally.
-- Timestamps are ISO-8601. Market logic runs in `America/New_York`.
+- **Legacy files:** timestamps are ISO-8601; market/session logic runs in `America/New_York`.
+  **New stores:** all timestamps at rest are **UTC**; New York time is display and
+  session logic only. Both regimes coexist by design (CHART_PLAN §14, discrepancy 4).
 - Proposed (M2): every JSON file gains a top-level `"schema_version": 1` field;
   loaders validate on read and **fail closed** (refuse to trade, log, keep the file
   quarantined) rather than guess.
@@ -80,6 +87,82 @@ it**; a human deletes it by hand to resume. Absence = normal operation.
 | `trades/trades_YYYY-MM.log` | append-only trade audit, one file per month | **never rotates** |
 | `slippage.csv` | expected vs actual fill price + latency per fill | append-only (not yet created — no fills) |
 
+## New stores — `data/stockwarren.db` (SQLite)
+
+Four tables, from [CHART_PLAN.md](CHART_PLAN.md) §5. Field semantics below are the
+frozen part; **exact SQLite types, constraints, and indexes are the next SCHEMA task**
+(CHART_PLAN §13) and will be added here before engine M2/C1 build against them.
+Nothing merges at rest — the chart joins by symbol + time + account at draw time.
+
+Conventions for the new stores (one sentence each, per CHART_PLAN §13/§14):
+
+- **Timestamp:** a bar's timestamp is the **interval START, stored UTC**; converted to
+  New York only for display and session logic.
+- **Snapping:** an event at 10:32:13 belongs to the 10:32:00 candle — **floor to
+  interval start**; the same rule applies to millisecond fill times.
+- **Empty minutes:** a minute with no trades stores **no row** and the chart draws a
+  **visible gap**; the backtester values positions at the **last traded price** — both
+  answer "price at 10:37?" with the last real trade.
+- **Extended hours:** **regular session only**, everywhere, until chart + model +
+  backtest change together.
+
+### `bars` — what the market did
+
+| Field | Notes |
+|---|---|
+| `timestamp` | interval START, UTC |
+| `symbol` | |
+| `open`, `high`, `low`, `close`, `volume` | OHLCV |
+| `feed` | `iex` \| `sip` — never mixed silently (hazard 4.1) |
+| `adjustment` | `raw` \| `split` \| `dividend` \| `all` (hazard 4.3) |
+| `timeframe` | `1Min` \| `1Day` \| … — both trading styles are rows, not schemas |
+
+### `signals` — what a model thought
+
+| Field | Notes |
+|---|---|
+| `signal_id` | |
+| `run_id` | → `runs` |
+| `account` | `alpha` \| `beta` \| `gamma` |
+| `timestamp` | UTC, actual decision moment |
+| `symbol` | |
+| `signal` | `BUY` \| `SELL` \| … |
+| `price` | the price the model saw |
+| `confidence` | 0–1 |
+| `source` | `training` \| `backtest` \| `live_model` |
+| `timeframe` | bars the signal was computed on (hazard 4.15) |
+| `rationale` | optional text — an LLM strategy's raw reply (CHART_PLAN §8.5); feeds the tooltip |
+| `disposition` | `traded` \| `vetoed_ml` \| `vetoed_validation` \| `vetoed_risk` \| `expired` (CHART_PLAN §8.3) |
+
+### `trades` — what actually happened
+
+| Field | Notes |
+|---|---|
+| `order_id` | Alpaca's ID |
+| `client_order_id` | ours — the duplicate-blocker (hazard 4.6) |
+| `run_id` | → `runs` |
+| `account` | `alpha` \| `beta` \| `gamma` |
+| `timestamp` | UTC |
+| `symbol`, `side`, `quantity` | |
+| `requested_price` | |
+| `fill_price` | slippage = fill − requested → feeds `slippage.csv` |
+| `status` | `submitted` \| `partial` \| `filled` \| `cancelled` \| `rejected` |
+| `strategy_id` | |
+
+### `runs` — the lab notebook
+
+| Field | Notes |
+|---|---|
+| `run_id` | |
+| `account` | |
+| `model_version` | e.g. `models/alpha/rf_2026-08-01.pkl` |
+| `data_range` | (start, end) |
+| `feed`, `adjustment`, `timeframe` | |
+| `params_hash` | fingerprint of every parameter — for LLM runs: model+version, prompt template, temperature (CHART_PLAN §8.5) |
+| `created_at` | |
+
+Without `runs`, "what exactly did the alpha model see?" is unanswerable within weeks.
+
 ## Key API payloads (observed 2026-08-18)
 
 ### `GET /api/status` — current account's bot
@@ -109,5 +192,7 @@ next_open, next_close, server_time}` — sourced from Alpaca's clock, ET timezon
 
 - `config/settings.ini` — configuration, not runtime data (documented in `CLAUDE.md`).
 - `.env` — secrets; never schema'd, never committed.
-- In-memory state (asset-list cache, per-tick evaluations) — rebuilt on restart; M7
-  may give evaluations a persisted, schema'd form (decision log).
+- In-memory state (asset-list cache, per-tick evaluations) — rebuilt on restart.
+  Note: engine M7's decision log is **not** a separate store — it is a view over
+  `signals` rows with their `disposition` (CHART_PLAN §14, Merger 2). Sub-threshold
+  scanning chatter (< 65%) stays in the log files, never in the store (CHART_PLAN §8.3).
