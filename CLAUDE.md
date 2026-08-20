@@ -141,6 +141,43 @@ ceilings** in `RiskManager.OVERRIDABLE` and **persisted** to
 `data/operator_overrides.json` (re-applied on startup). Endpoints: `GET/POST /api/overrides`,
 `POST /api/overrides/reset`. Leverage is never overridable.
 
+## Hard Rules — AI-Assisted Work (both tracks)
+
+Merged 2026-08-19 from [docs/EXECUTION_GUIDE.md](docs/EXECUTION_GUIDE.md) §1, reconciled
+against the Trading Safety Constitution above. Rule 3 reworded per Marty's explicit ruling:
+the guide's `trading/order_gate.py` was deleted in CHART_PLAN v0.7 — the existing gate is
+the gate. These bind every AI-assisted session on both tracks (engine M1–M8, chart C1–C8).
+
+1. **Bar timestamps = interval START, stored UTC.** New York time is display/session
+   logic only. (The market calendar keeps operating in `America/New_York` — the two
+   regimes coexist by design; `docs/SCHEMA.md` states both.)
+2. **A signal at time T may not read any bar after T.** The signal store
+   (`signals/store.py`, once built) enforces this physically; never bypass the store.
+3. **Every order goes through the EXISTING gate** — `RiskManager.approve_order()` +
+   `src/engine/safety.py` (kill switch, overrides, limits). No direct Alpaca trading
+   calls anywhere else. `trading/verdict_recorder.py` records the gate's verdicts as
+   dispositions — it never re-gates. (Supersedes the guide's `order_gate.py`.)
+4. **Never modify `gui/static/js/dashboard.js` beyond the single nav hook.** Chart
+   code lives in `gui/static/js/chart.js`, its own file.
+5. **Existing JSON/pickle files in `data/` are not migrated, renamed, or restructured.**
+6. **bars/signals/trades/runs live in SQLite** (`data/stockwarren.db`) — signals never
+   get written into the bars table.
+7. **New dependencies require asking first.** Prefer stdlib.
+8. **Timestamp-touching code requires tests**, including the DST-transition-day and
+   half-day fixtures.
+9. **The chart backend lives INSIDE the existing dashboard process** (`main.py
+   --dash-only`). Never start a second process that opens its own Alpaca data connection.
+10. **Never bypass or reorder the evaluation pipeline** (composite signal → validation →
+    ML filter → risk engine). New strategies feed INTO it; nothing goes around it to Alpaca.
+
+Workflow, from the same guide: work only on the current milestone's branch; every work
+order, branch, and prompt names its **track** (engine "M" vs chart "C") — a session told
+"do M4" with no track name must stop and ask; when the plan is ambiguous, STOP and ask
+rather than deciding architecture silently.
+
+(The guide's Commands block is **not** adopted: this repo's entry point remains
+`python main.py`, not `python -m gui.app` — see Common Commands above.)
+
 ## Operational Safeguards (live-trading hardening)
 
 - **Retry logic** (`src/utils/retry.py`): Exponential backoff for transient errors. Detects 408/429/5xx and connection errors. Permanent errors (4xx auth) fail fast.
