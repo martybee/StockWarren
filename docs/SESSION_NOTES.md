@@ -9,6 +9,45 @@ and guardrails so we don't repeat mistakes.
 
 ---
 
+## 2026-08-19 — Document intake: CHART_PLAN v0.9 + EXECUTION_GUIDE (docs only, no engine code)
+
+**Goal:** Install Marty's chart plan and execution guide into the repo and reconcile
+them with the existing doc set. Branch: `docs-intake` (off `plan-execution`), one
+commit per step, **not merged** — Marty reviews first.
+
+### What was done
+1. `docs/CHART_PLAN.md` (v0.9) and `docs/EXECUTION_GUIDE.md` installed verbatim from
+   `~/Downloads`; sister-doc pointers added atop `PLAN.md` and `CHART_PLAN.md`
+   (engine track = M1–M8, chart track = C1–C8, SCHEMA.md = shared constitution).
+2. The guide's ten hard rules merged into `CLAUDE.md`. **Conflict surfaced, not
+   resolved silently:** rule 3 named `trading/order_gate.py`, which CHART_PLAN v0.7
+   deleted. **Marty's ruling: existing-gate wording** — `approve_order()` +
+   `safety.py` is the gate; `verdict_recorder.py` records, never re-gates. The
+   guide's Commands block was NOT adopted (entry point stays `python main.py`).
+3. CHART_PLAN §14 Decision 3 (crash-restart: auto-resume if clean + ≥3/hr breaker,
+   reopened at M8) pasted into `M6.md`; Decision 4 (A/B/C rule: N=100, no peeking
+   before 50, profit factor + frozen drawdown cap, pause-on-violation, drawdown
+   tie-break) pasted into `M5.md`.
+4. `SCHEMA.md` → v0.2: database clause amended (legacy flat files stay; new stores
+   in SQLite `data/stockwarren.db`), UTC-at-rest vs NY-session dual regime stated,
+   four tables (bars/signals/trades/runs) + four one-sentence rules added. Exact
+   DDL deferred per CHART_PLAN §13.
+
+### Still open (deliberately)
+- **`TBD-DISCREPANCY-HOUR`** marker in `M5.md`: the drawdown-cap literal awaits
+  Marty reading each account's `review_drawdown_pct` during the discrepancy hour.
+- The five §14 repo-doc discrepancies ($9k vs $300; AMD vs $50 cap; naive
+  `scheduled_time`; SCHEMA contradictions — now partly addressed; scheduler symbol
+  validation) — the discrepancy hour is Marty's task, no agent.
+- `LLM_SOCKET_URL` (Qwen endpoint on the Zephyrus) not yet recorded in config.
+
+### Gotcha worth keeping
+- The guide is a **v0.5 companion** and carries stale references (order_gate.py,
+  `python -m gui.app`). When two planning docs disagree, the newer revision log
+  wins — but per the standing rule, show the conflict, don't resolve it silently.
+
+---
+
 ## 2026-07-19 — Run & Verify
 
 **Goal:** Start the app and verify it works end-to-end against the Alpaca paper
