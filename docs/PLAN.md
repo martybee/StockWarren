@@ -1,5 +1,7 @@
 # StockWarren — Living Plan
 
+> **Sister doc:** [CHART_PLAN.md](CHART_PLAN.md) owns the **chart track (C1–C8)**; this file owns the **engine track (M1–M8)**. [SCHEMA.md](SCHEMA.md) is the shared constitution both answer to. (CHART_PLAN §14 Decision 1)
+
 > **Version:** v0.5-draft — drafted 2026-08-19 by Claude from the codebase, config,
 > and session history. **This is a stand-in**: Marty will edit it and/or replace it
 > with the final source plan. Treat every milestone below as a proposal, not a commitment.
