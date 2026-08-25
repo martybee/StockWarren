@@ -79,13 +79,15 @@ All settings live in `config/settings.ini`. Key sections:
 - `[signals]` — `min_signal_strength` (default 65), `min_confirmations` (default 2)
 - `[risk_management]` — daily loss limits, stop loss %, trailing stop activation
 - `[indicators]` — periods for RSI, MACD, EMA, Bollinger, ATR
-- `[watchlist]` — default symbols (currently configured for ~$300 account: F, PLTR, SOFI, etc.)
+- `[watchlist]` — the shared A/B/C universe: F, PLTR, SOFI, NIO, RIVN, HOOD, SNAP, AMD, BAC, T (all three accounts inherit it; do not fork per-account)
 
-**Account constraint**: Paper account currently has ~$300, so config is tuned for small positions:
-- `max_positions = 2` (not 5)
-- `max_position_pct = 40.0` (not 20)
-- `max_daily_loss = 30.0` (not 500)
-- `min_price = 1.0`, `max_price = 50.0` (only affordable stocks)
+**Account sizing** (verified 2026-08-25, discrepancy hour): all three paper accounts
+hold **$9,000 each** — the ~$300 era is over. Current limits:
+- `max_positions = 2`
+- `max_position_pct = 40.0`
+- `max_daily_loss = 200.0`
+- Day-trade price band `min_price = 1.0`, `max_price = 500.0` (raised from 50.0 so
+  AMD stays day-tradable at $9k); swing band `10.0`–`1000.0`
 
 ## Critical Rules (from FutureWarren heritage)
 

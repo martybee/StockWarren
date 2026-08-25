@@ -9,6 +9,42 @@ and guardrails so we don't repeat mistakes.
 
 ---
 
+## 2026-08-25 — The discrepancy hour (CHART_PLAN §14 / EXECUTION_GUIDE §6 step 1)
+
+**Goal:** Verify the five repo-doc discrepancies read-only, then apply Marty's
+rulings. Findings first, writes only after explicit approval.
+
+### Findings
+
+| # | Check | Verdict |
+|---|-------|---------|
+| $9k vs $300 | Live API (2026-08-18): all three accounts hold **$9,000**. | CLAUDE.md was stale |
+| AMD vs $50 cap | Config already fixed: day `max_price` raised 50 → **500.0** (`settings.ini:110`, comment names AMD as the reason); swing cap 1000.0. AMD stays. | CLAUDE.md was stale |
+| `scheduled_time` naive | **Confirmed end to end**: stored verbatim (`scheduler.py:83`), compared against naive `datetime.now()` (`scheduler.py:154`) via `fromisoformat` (`:163`, `:323`), 30 s window / 5 min miss cutoff (`:167-177`). Not even pinned to New York. DST hazard 4.2 is live → engine M2 fix. | Real bug, parked for M2 |
+| `review_drawdown_pct` | **5.0 everywhere** — config (`settings.ini:170`) and all three override files. Smallest = 5.0. | M5 literal = 5.0 |
+| Qwen on the Zephyrus | **Not found.** No mDNS (`zephyrus.local`/`zephyrus-duo.local`); ARP-known LAN hosts (.124/.137/.139/.158/.170/.198) probed on 11434/8000/8080/1234 — only an nginx 404 on .139:8080 (not a model API). Machine likely asleep/off. | Placeholder recorded |
+
+### Rulings (Marty, 2026-08-25) & writes applied
+
+1. **Config is right; CLAUDE.md fixed** — account-constraint block now states
+   $9,000 accounts, `max_daily_loss = 200.0`, day band 1.0–500.0, swing 10.0–1000.0.
+2. **M5 drawdown-cap literal frozen: 5.0%** — written into `M5.md`
+   (zero completed trades at freeze time, so pre-registration holds).
+3. **`LLM_SOCKET_URL` placeholder** added to `.env.example` (commented; real IP
+   pending the Zephyrus being awake). NOT added to `.env`.
+4. **`docs-intake` merged** into `plan-execution` (fast-forward) before these
+   writes, per ruling; branch deleted.
+
+### Gotchas
+- The AMD/$50 "discrepancy" had already been fixed in config with an explanatory
+  comment — the docs were the stale side. Check config comments before assuming
+  the config is the stale artifact.
+- `arp -a` only shows recently-contacted hosts: "not in ARP" ≠ "not on the LAN".
+  A sleeping machine is invisible to this probe — re-probe after wake-on-LAN or
+  a manual power-on before concluding anything.
+
+---
+
 ## 2026-08-19 — Document intake: CHART_PLAN v0.9 + EXECUTION_GUIDE (docs only, no engine code)
 
 **Goal:** Install Marty's chart plan and execution guide into the repo and reconcile
