@@ -9,6 +9,55 @@ and guardrails so we don't repeat mistakes.
 
 ---
 
+## 2026-08-25 — Engine M1: the safety-invariant test suite (branch `m1-safety-tests`, NOT merged)
+
+**Goal:** Pin the seven constitution rules in pytest so any change that weakens a
+rail fails loudly. First build session of the engine track.
+
+### What was built
+- `tests/conftest.py` — offline harness: recording `MockAlpaca`, synthesized
+  OHLCV bars, `TradingBot` built via `object.__new__` + hand-wired attributes
+  (tests the engine exactly as it stands; no refactoring-for-testability).
+- One module per rule, **86 tests, ~0.1 s, zero network**:
+  - `test_rule1_veto_gate.py` — approve_order rejects/trims through every cap;
+    rejection always returns qty 0; approval never grows the proposal.
+  - `test_rule2_constitution_intact.py` — pins the governance TEXT (safety.RULES,
+    docstring, CLAUDE.md table) since rule 2 is enforced by process.
+  - `test_rule3_limits_immutable.py` — frozen limits, no setters, operator
+    clamps, leverage 1.0 never overridable.
+  - `test_rule4_one_way_stops.py` + `test_rule4_no_naked_positions.py` — stops
+    only tighten; kill switch has no reset; tripped switch = manage-only;
+    rejected/malformed stop ⇒ entry unwound.
+  - `test_rule5_no_trade_on_bad_data.py` — every validate_market_data failure
+    mode + bot-level no-order wiring.
+  - `test_rule6_unrecognized_broker_response.py` — classification table + the
+    trip/halt/cancel wiring; normal rejection ≠ Rule 6 breach.
+  - `test_rule7_uncertainty_shrinks_size.py` — floor semantics; output is 0 or
+    in [MIN_SIZE_FACTOR, 1] across a grid.
+- `pytest>=8.0` added to requirements (dev section); CLAUDE.md Testing section
+  rewritten (was "No test suite yet").
+
+### ⚠️ Gotcha — the mutation that SURVIVED
+Weakening the one-way stop guard (`>` → `!=`) passed all six original stop
+tests. With a fixed trail distance the calculated stop is monotonic in the
+high-water mark, so price paths alone can never ask the guard to loosen. The
+guard's real job is refusing to drag down a stop that is ALREADY tighter than
+the trail formula (tight ATR entry stop, manual tightening, any future stop
+source). Two `externally_tightened` tests now pin exactly that; the same
+mutation now fails. **Lesson: run the mutation check before trusting a green
+suite — a passing test proves reachability, not protection.**
+
+Second mutation (Rule 7 floor removal) was caught immediately (2 failures).
+Both mutations reverted; `git status src/` clean; final run 86/86.
+
+### For Marty's review (M1 checklist, EXECUTION_GUIDE §5 spirit)
+- `git diff plan-execution..m1-safety-tests` — only `tests/`, `requirements.txt`,
+  `CLAUDE.md`, `docs/` change; `src/` is untouched.
+- Re-run the mutation check yourself if you want the proof live.
+- Merge when satisfied; M1.md status flips to ✅ then.
+
+---
+
 ## 2026-08-25 — The discrepancy hour (CHART_PLAN §14 / EXECUTION_GUIDE §6 step 1)
 
 **Goal:** Verify the five repo-doc discrepancies read-only, then apply Marty's
