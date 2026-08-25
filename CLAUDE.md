@@ -231,7 +231,25 @@ The Random Forest validator starts untrained. It approves all signals until enou
 
 ## Testing
 
-No test suite yet. Manual testing flow:
+**Safety-invariant suite (engine M1):**
+
+```bash
+venv/bin/python -m pytest tests/ -q     # 86 tests, fully offline, ~0.1s
+```
+
+One module per constitution rule (`tests/test_rule<N>_*.py`, rule 4 gets two:
+one-way stops and kill-switch/no-naked-positions). `tests/conftest.py` holds the
+shared harness: a recording `MockAlpaca`, synthesized OHLCV bars, and a
+hand-wired `TradingBot` (built via `object.__new__` so no network or config is
+touched). The suite is mutation-checked — weakening a rule guard (the one-way
+stop `>`, the Rule 7 `MIN_SIZE_FACTOR` floor) makes named tests fail. Keep it
+that way: a new safety rule lands WITH a test that dies if the rule is weakened.
+
+`tests/test_trading_gate.py` is an older standalone script (also runs under
+`venv/bin/python tests/test_trading_gate.py`); it executes at pytest collection
+time and fails the run if its checks fail.
+
+Manual smoke flow:
 1. Start dashboard: `python main.py --dash-only`
 2. Verify connection: `curl http://127.0.0.1:5000/api/status`
 3. Test market data: `curl http://127.0.0.1:5000/api/stocks/search?q=AAPL`
