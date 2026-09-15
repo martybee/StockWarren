@@ -26,9 +26,10 @@ never let the strategy outrun the risk engine while doing it.
   in `src/engine/safety.py`. Kill switch is file-backed with no programmatic reset.
 - **Dashboard:** Flask + vanilla JS, nav-rail sections per subsystem, 5-second
   polling (SocketIO is initialized server-side but unused by the page).
-- **Gaps:** no test suite; ML untrained (0 completed trades); supervisor scripts
-  exist in `setup/services/` but are not loaded; trade history/P&L not consolidated;
-  `slippage.csv` empty (no fills yet).
+- **Gaps:** ML untrained (0 completed trades); supervisor scripts exist in
+  `setup/services/` but are not loaded; trade history/P&L not consolidated;
+  `slippage.csv` empty (no fills yet). ~~No test suite~~ — M1's 86-test
+  safety-invariant suite merged 2026-09-15.
 
 ## The strategy experiment
 
@@ -44,7 +45,7 @@ observe → graduate.*
 
 | # | Title | Theme | Status |
 |---|-------|-------|--------|
-| [M1](milestones/M1.md) | Safety-invariant test suite | Trust the rails before anything else | ⏳ |
+| [M1](milestones/M1.md) | Safety-invariant test suite | Trust the rails before anything else | ✅ 2026-09-15 |
 | [M2](milestones/M2.md) | Data schema & validation | Make `SCHEMA.md` enforced, not aspirational | ⏳ |
 | [M3](milestones/M3.md) | Trade history & P&L persistence | One canonical record per completed trade | ⏳ |
 | [M4](milestones/M4.md) | ML pipeline to first trained model | From completed trades to a filtering model | ⏳ |
