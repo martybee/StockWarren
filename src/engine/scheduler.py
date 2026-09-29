@@ -8,12 +8,34 @@ import threading
 import time
 import json
 import os
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field, asdict
+from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field, fields, asdict
 from typing import Optional
 from enum import Enum
+from zoneinfo import ZoneInfo
+
+from src.utils.state_schema import SCHEMA_VERSION, quarantine, version_gate
 
 logger = logging.getLogger(__name__)
+
+# Scheduled times are MARKET times. A naive scheduled_time string has always
+# meant wall-clock time on this ET machine, so the documented semantics are:
+# naive = America/New_York wall time (ambiguous fall-back times resolve to the
+# FIRST occurrence, PEP 495 fold=0); offset-aware strings are honored as given.
+# All comparisons happen in UTC — wall-clock subtraction lies across a DST
+# transition (see SESSION_NOTES 2026-08-25, discrepancy #3).
+MARKET_TZ = ZoneInfo("America/New_York")
+
+
+def parse_scheduled_time(ts: str) -> Optional[datetime]:
+    """ISO string -> aware UTC datetime, or None if unparseable (fail closed)."""
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=MARKET_TZ)
+    return dt.astimezone(timezone.utc)
 
 
 class ScheduledTradeStatus(str, Enum):
@@ -35,7 +57,8 @@ class ScheduledTrade:
     limit_price: Optional[float] = None
     stop_loss_pct: Optional[float] = None    # Optional stop loss %
     take_profit_pct: Optional[float] = None  # Optional take profit %
-    scheduled_time: str = ""     # ISO format: "2026-04-22T10:30:00"
+    scheduled_time: str = ""     # ISO; naive = America/New_York wall time,
+                                 # offset-aware accepted (see MARKET_TZ note)
     status: str = ScheduledTradeStatus.PENDING
     created_at: str = ""
     executed_at: str = ""
@@ -69,7 +92,14 @@ class TradeScheduler:
                        stop_loss_pct: float = None,
                        take_profit_pct: float = None,
                        notes: str = "") -> ScheduledTrade:
-        """Schedule a new trade"""
+        """Schedule a new trade. Rejects an unparseable scheduled_time at
+        CREATION time — a time string that cannot fire is refused now, not
+        discovered days later (discrepancy-hour lesson: verify at creation)."""
+        if parse_scheduled_time(scheduled_time) is None:
+            raise ValueError(
+                f"unparseable scheduled_time {scheduled_time!r} — use ISO format, "
+                f"e.g. 2026-04-22T10:30:00 (naive = America/New_York)"
+            )
         with self._lock:
             trade = ScheduledTrade(
                 id=f"ST-{self._next_id:04d}",
@@ -82,7 +112,7 @@ class TradeScheduler:
                 take_profit_pct=take_profit_pct,
                 scheduled_time=scheduled_time,
                 status=ScheduledTradeStatus.PENDING,
-                created_at=datetime.now().isoformat(),
+                created_at=datetime.now(MARKET_TZ).isoformat(),
                 notes=notes,
             )
             self._next_id += 1
@@ -149,19 +179,34 @@ class TradeScheduler:
                 logger.error(f"Scheduler error: {e}", exc_info=True)
             time.sleep(5)
 
-    def _check_and_execute(self):
-        """Check if any scheduled trades should be executed now"""
-        now = datetime.now()
+    def _check_and_execute(self, now: Optional[datetime] = None):
+        """Check if any scheduled trades should be executed now.
+
+        All math is aware-UTC: `now` (injectable for tests) and every
+        scheduled_time are converted before subtracting, so elapsed seconds
+        are real seconds even across a DST transition.
+        """
+        now = (now.astimezone(timezone.utc) if now is not None
+               else datetime.now(timezone.utc))
 
         with self._lock:
             trades_to_execute = []
-            for trade in self.scheduled_trades:
+            for trade in list(self.scheduled_trades):
                 if trade.status != ScheduledTradeStatus.PENDING:
                     continue
 
-                try:
-                    sched_time = datetime.fromisoformat(trade.scheduled_time)
-                except (ValueError, TypeError):
+                sched_time = parse_scheduled_time(trade.scheduled_time)
+                if sched_time is None:
+                    # Fail closed AND loud: an unfireable trade must not sit
+                    # pending forever looking healthy.
+                    trade.status = ScheduledTradeStatus.FAILED
+                    trade.error_message = (
+                        f"unparseable scheduled_time {trade.scheduled_time!r}"
+                    )
+                    self.history.append(trade)
+                    self.scheduled_trades.remove(trade)
+                    logger.critical("Scheduled trade %s failed: %s",
+                                    trade.id, trade.error_message)
                     continue
 
                 # Execute if we're within 30 seconds of the scheduled time
@@ -298,6 +343,7 @@ class TradeScheduler:
         """Save scheduled trades to disk"""
         os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
         data = {
+            "schema_version": SCHEMA_VERSION,
             "next_id": self._next_id,
             "pending": [t.to_dict() for t in self.scheduled_trades],
             "history": [t.to_dict() for t in self.history[-100:]],
@@ -305,33 +351,102 @@ class TradeScheduler:
         with open(self._data_file, "w") as f:
             json.dump(data, f, indent=2)
 
+    _TRADE_FIELDS = None  # cached set of ScheduledTrade field names
+
+    @classmethod
+    def _trade_from_dict(cls, raw, where: str) -> Optional[ScheduledTrade]:
+        """Validate one persisted record. Returns None (and logs) on damage —
+        a record we cannot trust must never become a fireable trade (Rule 5)."""
+        if cls._TRADE_FIELDS is None:
+            cls._TRADE_FIELDS = {f.name for f in fields(ScheduledTrade)}
+        if not isinstance(raw, dict):
+            logger.critical("scheduled_trades %s: record is %s, not object — skipped",
+                            where, type(raw).__name__)
+            return None
+        unknown = set(raw) - cls._TRADE_FIELDS
+        if unknown:
+            logger.warning("scheduled_trades %s (%s): ignoring unknown fields %s",
+                           where, raw.get("id", "?"), sorted(unknown))
+        clean = {k: v for k, v in raw.items() if k in cls._TRADE_FIELDS}
+        try:
+            trade = ScheduledTrade(**clean)
+            # Type checks on everything that decides money or control flow.
+            if not (isinstance(trade.id, str) and trade.id):
+                raise ValueError(f"bad id {trade.id!r}")
+            if not (isinstance(trade.symbol, str) and trade.symbol):
+                raise ValueError(f"bad symbol {trade.symbol!r}")
+            if trade.side not in ("buy", "sell"):
+                raise ValueError(f"bad side {trade.side!r}")
+            trade.qty = float(trade.qty)
+            if trade.qty <= 0:
+                raise ValueError(f"non-positive qty {trade.qty!r}")
+            if trade.order_type not in ("market", "limit"):
+                raise ValueError(f"bad order_type {trade.order_type!r}")
+            if trade.status not in [s.value for s in ScheduledTradeStatus]:
+                raise ValueError(f"bad status {trade.status!r}")
+        except (TypeError, ValueError) as e:
+            logger.critical("scheduled_trades %s: invalid record %r skipped (%s)",
+                            where, raw.get("id", raw), e)
+            return None
+        return trade
+
     def _load_trades(self):
-        """Load scheduled trades from disk"""
+        """Load scheduled trades from disk — validated, fail-closed.
+
+        Structural damage (unparseable JSON, wrong shape, future schema) =>
+        the whole file is QUARANTINED and the scheduler starts empty: no trade
+        ever fires off a file we could not read honestly. Record-level damage
+        => that record is skipped loudly; intact records still load.
+        """
         if not os.path.exists(self._data_file):
             return
 
         try:
             with open(self._data_file) as f:
                 data = json.load(f)
-
-            self._next_id = data.get("next_id", 1)
-
-            for t in data.get("pending", []):
-                trade = ScheduledTrade(**t)
-                # Only load if still in the future
-                try:
-                    sched_time = datetime.fromisoformat(trade.scheduled_time)
-                    if sched_time > datetime.now() - timedelta(minutes=5):
-                        self.scheduled_trades.append(trade)
-                except (ValueError, TypeError):
-                    pass
-
-            for t in data.get("history", []):
-                self.history.append(ScheduledTrade(**t))
-
-            logger.info(
-                f"Loaded {len(self.scheduled_trades)} pending and "
-                f"{len(self.history)} historical scheduled trades"
-            )
         except Exception as e:
-            logger.error(f"Failed to load scheduled trades: {e}")
+            quarantine(self._data_file, f"unparseable JSON: {e}")
+            return
+
+        if (not isinstance(data, dict)
+                or not isinstance(data.get("pending", []), list)
+                or not isinstance(data.get("history", []), list)
+                or isinstance(data.get("next_id", 1), bool)
+                or not isinstance(data.get("next_id", 1), int)):
+            quarantine(self._data_file, "wrong top-level shape")
+            return
+
+        ok, version = version_gate(data, self._data_file)
+        if not ok:
+            quarantine(self._data_file, "unacceptable schema_version")
+            return
+        if version == 0:
+            logger.info("%s is legacy v0; it will be upgraded on next save",
+                        self._data_file)
+
+        self._next_id = data.get("next_id", 1)
+        now_utc = datetime.now(timezone.utc)
+
+        for t in data.get("pending", []):
+            trade = self._trade_from_dict(t, "pending")
+            if trade is None:
+                continue
+            sched_time = parse_scheduled_time(trade.scheduled_time)
+            if sched_time is None:
+                logger.critical(
+                    "scheduled_trades pending (%s): unparseable scheduled_time "
+                    "%r — NOT loaded as fireable", trade.id, trade.scheduled_time)
+                continue
+            # Only load if still in the future (aware-UTC comparison)
+            if sched_time > now_utc - timedelta(minutes=5):
+                self.scheduled_trades.append(trade)
+
+        for t in data.get("history", []):
+            trade = self._trade_from_dict(t, "history")
+            if trade is not None:
+                self.history.append(trade)
+
+        logger.info(
+            f"Loaded {len(self.scheduled_trades)} pending and "
+            f"{len(self.history)} historical scheduled trades (schema v{version})"
+        )
