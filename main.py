@@ -125,6 +125,24 @@ def main():
                 sys.exit(2)
             logger.info("Alpaca API is now reachable, continuing startup")
 
+    # Staleness guard (M6): stamp which code this process is actually running,
+    # so a long-lived process can never silently masquerade as current again.
+    from src.utils.build_info import RUNNING_COMMIT, STARTED_AT
+    supervised = os.getenv("STOCKWARREN_SUPERVISED") == "1"
+    logger.info("Process build: commit %s, started %s%s",
+                (RUNNING_COMMIT or "unknown")[:12], STARTED_AT.isoformat(),
+                " [supervised]" if supervised else "")
+
+    # Under supervision on macOS, tie sleep-prevention to THIS process's
+    # lifetime: caffeinate -w exits by itself when we do. No hand-run PIDs.
+    if supervised and sys.platform == "darwin":
+        try:
+            import subprocess
+            subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
+            logger.info("caffeinate attached: Mac stays awake while this process lives")
+        except Exception as e:
+            logger.warning("Could not attach caffeinate (%s) — continuing without it", e)
+
     # Initialize trade audit logger
     audit_logger = TradeAuditLogger(log_dir="logs/trades")
     logger.info("Trade audit logger initialized")
@@ -192,7 +210,21 @@ def main():
         except Exception as e:
             logger.warning(f"Could not determine market status: {e}")
 
+    # Crash-restart policy (M6, CHART_PLAN §14 Decision 3). Evaluated AFTER
+    # AccountManager and TradeScheduler have loaded their state files, so the
+    # clean-state check sees this boot's validation results. --dash-only never
+    # starts bots, so it needs no gate.
+    decision = None
+    if not args.dash_only:
+        from src.engine.startup_policy import evaluate_startup
+        decision = evaluate_startup(
+            account_ids=[a.id for a in configured], supervised=supervised)
+
     if args.bot_only:
+        if not decision.start_bots:
+            logger.critical("--bot-only refused by startup policy: %s. Exiting.",
+                            "; ".join(decision.reasons))
+            sys.exit(4)
         logger.info("Starting %d bot(s) (no dashboard)...", len(configured))
         manager.start_all()
         while not _shutdown_requested:      # keep main thread alive for signals
@@ -206,11 +238,20 @@ def main():
         run_dashboard(host=args.host, port=args.port)
 
     else:
-        logger.info(f"Starting {len(configured)} bot(s) + dashboard at http://{args.host}:{args.port}")
         from gui.app import run_dashboard, set_account_manager, set_scheduler
         set_account_manager(manager)
         set_scheduler(scheduler)
-        manager.start_all()
+        if decision.start_bots:
+            logger.info(f"Starting {len(configured)} bot(s) + dashboard at http://{args.host}:{args.port}")
+            manager.start_all()
+        else:
+            # Decision 3: the process comes up DASHBOARD-ONLY — alive, visible,
+            # not trading — rather than crash-looping or trading off dirty state.
+            logger.critical(
+                "DASHBOARD-ONLY: bots not started (%s). Dashboard at "
+                "http://%s:%s — a human resolves the cause, then starts the "
+                "bots from the UI or restarts the service.",
+                "; ".join(decision.reasons), args.host, args.port)
         run_dashboard(host=args.host, port=args.port)
 
 

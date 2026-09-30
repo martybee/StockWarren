@@ -58,6 +58,10 @@
                 </button>
                 <ul id="theme-menu" class="theme-menu" role="menu" aria-labelledby="theme-btn"></ul>
             </div>
+            <!-- Staleness guard (M6): visible only when the running process's
+                 git commit no longer matches the code on disk — the 88-day
+                 stale-process gotcha, made impossible to miss. -->
+            <span id="stale-badge" class="badge badge-stale" hidden>⚠ STALE CODE</span>
             <span id="safety-badge" class="badge clickable" title="Open the Safety section" onclick="navigate('safety')">--</span>
             <!-- Market state and the countdown to the next session boundary, in one
                  element. They used to be a badge here plus a separate countdown

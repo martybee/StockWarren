@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 
+# Every quarantine this process performs is registered here, so the startup
+# policy (engine M6) can answer "did ANY state file fail validation this
+# boot?" — a non-empty list means the auto-resume clean-state check fails
+# and the process comes up dashboard-only.
+QUARANTINED: list = []
+
 
 def quarantine(path: str, reason: str) -> Optional[str]:
     """Rename a bad state file out of harm's way. Returns the new path.
@@ -35,6 +41,7 @@ def quarantine(path: str, reason: str) -> Optional[str]:
     """
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     target = f"{path}.invalid-{stamp}"
+    QUARANTINED.append(path)
     try:
         os.rename(path, target)
         logger.critical(

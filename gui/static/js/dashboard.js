@@ -194,6 +194,23 @@ async function updateStatus() {
         botBadge.textContent = data.running ? 'RUNNING' : 'STOPPED';
         setBadgeVariant(botBadge, data.running ? 'badge-green' : 'badge-red');
 
+        // Staleness guard (M6): warn when running commit ≠ disk commit.
+        // `stale` is strictly true/false/null — null means "cannot verify"
+        // (no git available) and must NOT raise a false alarm.
+        const staleEl = document.getElementById('stale-badge');
+        if (staleEl) {
+            const p = data.process;
+            const isStale = !!(p && p.stale === true);
+            staleEl.hidden = !isStale;
+            if (isStale) {
+                staleEl.title = 'This process runs commit '
+                    + (p.running_commit || '').slice(0, 7)
+                    + ' but the code on disk is at '
+                    + (p.disk_commit || '').slice(0, 7)
+                    + ' — restart the service to load current code.';
+            }
+        }
+
         // Control bar status (top of Overview)
         const dot = document.getElementById('control-dot');
         if (dot) {

@@ -466,6 +466,9 @@ header h1 {
 .badge-red { background: var(--tint-red); color: var(--accent-red); }
 .badge-blue { background: var(--tint-blue); color: var(--accent-blue); }
 .badge-yellow { background: var(--tint-yellow); color: var(--accent-yellow); }
+/* Staleness guard (M6): running code no longer matches the code on disk.
+   Yellow-tinted like a warning, not red — the system is safe, just old. */
+.badge-stale { background: var(--tint-yellow); color: var(--accent-yellow); font-weight: 700; }
 /* Unknown/indeterminate. Neutral on purpose: a dashboard that cannot read the
    safety layer, or a clock it cannot reach, must never paint green or assert
    OPEN/CLOSED. Both are existing theme tokens, so the palette audit is

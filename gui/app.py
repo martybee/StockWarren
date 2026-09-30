@@ -122,7 +122,12 @@ def get_compare():
 def get_status():
     if bot is None:
         return jsonify({"error": "Bot not initialized"}), 503
-    return jsonify(bot.get_status())
+    payload = bot.get_status()
+    # Staleness guard (M6): the 88-day gotcha, made structural. The header
+    # warns when the running commit no longer matches the code on disk.
+    from src.utils.build_info import staleness
+    payload["process"] = staleness()
+    return jsonify(payload)
 
 
 @app.route("/api/health")
