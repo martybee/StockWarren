@@ -1,9 +1,11 @@
 # StockWarren — Data & API Schema Spec
 
-> **Version:** v0.2-draft — v0.1 drafted 2026-08-19 by Claude from the live files
+> **Version:** v0.3 — v0.1 drafted 2026-08-19 by Claude from the live files
 > and API responses; v0.2 amended the same day per [CHART_PLAN.md](CHART_PLAN.md) §14
-> (database clause, UTC-for-new-stores convention, "New stores" section). M2 turns
-> this into enforced validation. Shared constitution for both tracks (engine M, chart C).
+> (database clause, UTC-for-new-stores convention, "New stores" section); v0.3
+> (2026-09-28) reflects engine M2 SHIPPED: schema_version + fail-closed quarantine
+> for the two state files, and tz-aware `scheduled_time` semantics. Shared
+> constitution for both tracks (engine M, chart C).
 
 Purpose: the single source of truth for every file StockWarren persists and every
 API payload the dashboard depends on. If code and this spec disagree, that's a bug
@@ -20,9 +22,16 @@ in one of them — fix whichever is wrong, deliberately.
 - **Legacy files:** timestamps are ISO-8601; market/session logic runs in `America/New_York`.
   **New stores:** all timestamps at rest are **UTC**; New York time is display and
   session logic only. Both regimes coexist by design (CHART_PLAN §14, discrepancy 4).
-- Proposed (M2): every JSON file gains a top-level `"schema_version": 1` field;
-  loaders validate on read and **fail closed** (refuse to trade, log, keep the file
-  quarantined) rather than guess.
+- **Shipped (M2, 2026-09-28)** for `scheduled_trades.json` and
+  `operator_overrides_*.json`: a top-level `"schema_version": 1` field, written on
+  every save. Loaders validate on read and **fail closed**: a versionless file is
+  legacy v0 (accepted, upgraded on next save); a structurally invalid file or a
+  FUTURE schema_version is **quarantined** — renamed `<name>.invalid-<utc-stamp>`,
+  never overwritten — and the caller falls back to its safe default (empty
+  scheduler state / config-baseline limits). Record- or value-level damage is
+  dropped loudly while intact data still loads. Enforcement:
+  `src/utils/state_schema.py`; tests: `tests/test_m2_state_files.py`.
+  (`company_profiles.json` is exempt: it is a cache, deleted on mismatch.)
 
 ## Files under `data/`
 
@@ -30,6 +39,7 @@ in one of them — fix whichever is wrong, deliberately.
 
 ```json
 {
+  "schema_version": 1,
   "next_id": 4,
   "pending": [ <trade>, ... ],
   "history": [ <trade>, ... ]
@@ -47,7 +57,7 @@ Each `<trade>`:
 | `order_type` | string | `"market"` \| `"limit"` |
 | `limit_price` | number\|null | only for limit orders |
 | `stop_loss_pct`, `take_profit_pct` | number\|null | optional brackets |
-| `scheduled_time` | string | naive local ISO timestamp |
+| `scheduled_time` | string | ISO; **naive = America/New_York wall time** (ambiguous fall-back times = first occurrence, PEP 495 fold=0); offset-aware accepted; all comparisons happen in aware UTC; unparseable values are refused at creation (M2) |
 | `status` | string | `pending` → `executed` \| `cancelled` \| `failed` \| `missed` (missed = window passed by 5 min) |
 | `created_at`, `executed_at` | string | ISO; `executed_at` empty until fill |
 | `result_order_id`, `error_message`, `notes` | string | audit fields |

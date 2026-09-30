@@ -9,6 +9,62 @@ and guardrails so we don't repeat mistakes.
 
 ---
 
+## 2026-09-28 — Engine M2: state-file validation + tz-aware scheduling (branch `m2-schema-validation`, NOT merged)
+
+**Goal:** Make SCHEMA.md enforced, not aspirational — versioned state files,
+fail-closed loaders with quarantine — and fix the naive `scheduled_time` bug
+parked at the discrepancy hour.
+
+### What was built
+- `src/utils/state_schema.py` (new, stdlib-only): `schema_version` gate
+  (legacy v0 accepted + upgraded on next save; FUTURE versions refused) and
+  `quarantine()` — a bad file is renamed `.invalid-<utc-stamp>`, never
+  overwritten, so the next save can't destroy the evidence.
+- `src/utils/overrides.py`: structural damage ⇒ quarantine + config-baseline
+  limits; non-numeric/boolean values dropped loudly, intact keys kept.
+- `src/engine/scheduler.py`: per-record validation (`_trade_from_dict`) — one
+  damaged record no longer kills the whole load via `ScheduledTrade(**t)`
+  TypeError; unparseable `scheduled_time` refused at CREATION (ValueError to
+  the API) and pending unfireables moved to FAILED history instead of sitting
+  pending forever; **all execution math in aware UTC**. Semantics ruled and
+  documented: naive `scheduled_time` = America/New_York wall time (this Mac
+  is ET — verified `/etc/localtime` — so history is preserved); ambiguous
+  fall-back times = first occurrence (fold=0).
+- 30 new tests (116 total, ~0.1 s, offline): quarantine/versioning/record
+  validation, DST fall-back + spring-forward + half-day fixtures (hard rule 8),
+  creation-time rejection. THE regression test: a trade scheduled 01:45 on
+  fall-back day must NOT fire at the second 01:46 wall-clock (naive math said
+  60 s elapsed; real elapsed is 3661 s ⇒ MISSED).
+- SCHEMA.md → v0.3 (shipped semantics); mutation-checked twice (no-op
+  quarantine: 6 named failures; UTC-naive parse: 7 named failures).
+
+### ⚠️ Gotcha — `git checkout` as mutation-revert EATS uncommitted work
+The M1 mutation-check pattern (sed → run tests → `git checkout <file>`) is
+only safe on COMMITTED files. This session ran it on uncommitted work:
+`git checkout src/engine/scheduler.py` silently restored the PRE-M2 version
+(all six edits gone), and the brand-new `state_schema.py` couldn't be
+restored at all (pathspec unknown to git — the mutation stayed on disk).
+Everything was rebuilt from the session context and the suite re-verified,
+but the rule is now: **commit first, mutate second.** A mutation check
+belongs AFTER the feature commit, never before it.
+
+### Still open (noted, out of M2 scope)
+- Scheduler's `_execute_trade` places orders WITHOUT passing
+  `approve_order()` — predates M2; flagged against hard rule 3 for Marty to
+  rule on (operator-initiated trades: exempt as human orders, or gated?).
+- Symbol-vs-Alpaca validation at creation (ST-0002 `SPACEX` lesson) needs a
+  broker call — deferred with a note, candidate for the C-track or M6.
+
+### For Marty's review
+- `git diff plan-execution..m2-schema-validation` — src changes are confined
+  to `state_schema.py` (new), `overrides.py`, `scheduler.py`.
+- The three real `data/` files are untouched; they upgrade to v1 on their
+  next save after the merged code runs.
+- Restart note: the running dashboard process still executes pre-M2 code
+  until restarted (as always).
+
+---
+
 ## 2026-08-25 — Engine M1: the safety-invariant test suite (branch `m1-safety-tests`, NOT merged)
 
 **Goal:** Pin the seven constitution rules in pytest so any change that weakens a
