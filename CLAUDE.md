@@ -190,11 +190,48 @@ rather than deciding architecture silently.
 - **Startup health check** (`main.py`): Waits up to 120s (configurable via `--startup-timeout`) for Alpaca API. Use `--skip-startup-check` to bypass during dev.
 - **Graceful shutdown**: `main.py` catches SIGTERM/SIGINT and stops scheduler/EOD/bot in order before exit.
 
-## Process Supervisors
+## Process Supervisors (engine M6: supervised operation)
 
-- **macOS**: [setup/services/com.stockwarren.bot.plist](setup/services/com.stockwarren.bot.plist) — replace `YOUR_USER` and load with `launchctl load`.
-- **Linux**: [setup/services/stockwarren.service](setup/services/stockwarren.service) — replace `YOUR_USER` and enable with `systemctl`.
-- **Cross-platform**: [setup/supervisor.sh](setup/supervisor.sh) — bash wrapper with exponential backoff and rate limiting (max 10 restarts/hour).
+- **macOS (THE deployment)**: [setup/services/com.stockwarren.bot.plist](setup/services/com.stockwarren.bot.plist)
+  — configured for `martynbar`, runs **default mode** (bots + dashboard) with
+  `STOCKWARREN_SUPERVISED=1`. KeepAlive restarts on crash, not on clean exit.
+- **Linux**: [setup/services/stockwarren.service](setup/services/stockwarren.service) — untested, replace `YOUR_USER` (out of M6 scope).
+- **Cross-platform**: [setup/supervisor.sh](setup/supervisor.sh) — bash fallback wrapper (max 10 restarts/hour).
+
+**Crash-restart policy (CHART_PLAN §14 Decision 3, `src/engine/startup_policy.py`):**
+on a supervised start, bots auto-resume ONLY if clean — no `KILL_SWITCH*.lock`
+anywhere and no state file quarantined during load. **≥ 3 supervised restarts
+within one hour trips every account's kill switch** and the process comes up
+dashboard-only. Manual (`python main.py` by hand) starts get the same clean-state
+check but never count toward the breaker. Starts are recorded in
+`data/restart_history.json` (versioned state file). Under supervision, `main.py`
+attaches `caffeinate -s -w <own pid>` — no hand-run caffeinate, ever.
+**Staleness guard** (`src/utils/build_info.py`): `/api/status` carries
+`process.{running_commit, disk_commit, stale}`; the dashboard header shows
+**⚠ STALE CODE** when the running process no longer matches disk HEAD.
+This policy is re-decided at engine M8 before any live money.
+
+### Runbook
+
+```bash
+# install (once) / start
+cp setup/services/com.stockwarren.bot.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.stockwarren.bot.plist
+
+launchctl list | grep stockwarren                        # status (PID, last exit code)
+launchctl kickstart -k gui/$(id -u)/com.stockwarren.bot  # deliberate restart (e.g. to load new code)
+launchctl unload ~/Library/LaunchAgents/com.stockwarren.bot.plist   # stop + disable
+
+tail -f logs/launchd.out.log logs/stockwarren.log        # logs
+curl -s http://127.0.0.1:5000/api/health                 # is it serving?
+
+# clear a kill switch (HUMAN action; understand the cause first)
+ls data/KILL_SWITCH*.lock && cat data/KILL_SWITCH*.lock  # what tripped, when, why
+rm data/KILL_SWITCH_<account>.lock                       # then restart or start bots from the UI
+
+# state-file quarantines (why a boot came up dashboard-only)
+ls data/*.invalid-*
+```
 
 ## Health Endpoint
 

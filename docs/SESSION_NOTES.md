@@ -9,6 +9,59 @@ and guardrails so we don't repeat mistakes.
 
 ---
 
+## 2026-09-30 — Engine M6: supervision & restart-safe ops (branch `m6-supervision`, NOT merged)
+
+**Goal:** Implement CHART_PLAN §14 Decision 3 (auto-resume if clean + crash-loop
+breaker), the staleness guard, supervised caffeinate, and the runbook. Pulled
+early per §14 (hazard 4.16).
+
+### Discovery first: the bots were NOT running
+The `main.py --dash-only` process from August is **gone** (no process, nothing
+on :5000) — the three bots have been down for an unknown stretch. Exactly the
+silent failure M6 exists to end; no positions were at risk (broker-side stops
+persist at Alpaca regardless).
+
+### What was built
+- `src/engine/startup_policy.py`: Decision 3 as code. Clean-state check for ALL
+  bot-starting boots (any `KILL_SWITCH*.lock` present, or any state file
+  quarantined during this boot's loads ⇒ bots do not start). Breaker: ≥3
+  **supervised** starts (`STOCKWARREN_SUPERVISED=1`, set only by the plist)
+  within one hour ⇒ trip every account's kill switch, come up dashboard-only.
+  Manual starts recorded but never counted — a human restarting thrice in an
+  evening is deliberate, not a crash loop. `data/restart_history.json` is a
+  versioned state file under the M2 rules (corrupt ⇒ quarantined ⇒ that boot is
+  unclean — deliberately strict).
+- `src/utils/build_info.py` + `/api/status.process` + header `⚠ STALE CODE`
+  badge: running commit stamped at import, compared to disk HEAD (15s TTL);
+  `stale` is true/false/**null** — unknown never raises a false alarm.
+- Plist configured for martynbar: default mode (bots + dashboard), supervised
+  env var, KeepAlive on crash only; `main.py` under supervision attaches
+  `caffeinate -s -w <own pid>` — sleep prevention finally dies with the process.
+- Runbook in CLAUDE.md (install/status/restart/stop/logs/clear-switch).
+- 16 tests (132 total). Mutation-checked AFTER committing (M2's lesson,
+  applied): breaker `>=`→`>` ⇒ 3 named failures; quarantine-blind clean check
+  ⇒ 2 named failures.
+
+### Notes for review
+- `main.py` behavior change: a MANUAL `python main.py` with a tripped kill
+  switch or quarantined state file now comes up dashboard-only instead of
+  starting bots that idle at the tick check. Fail-closed, but a change — flag
+  if unwanted.
+- `dashboard.js` was edited beyond the nav hook (staleness badge in
+  `updateStatus()`). Read of hard rule 4: it protects dashboard.js from CHART
+  code; this is engine-track UI required verbatim by M6.md ("dashboard header
+  shows a warning"). Flagged rather than silently assumed.
+- launchd `UserName` key dropped from the plist — it is ignored for user
+  LaunchAgents (only meaningful for system daemons).
+- Still open from M2: the scheduler-bypasses-`approve_order()` ruling.
+
+### Pending live drills (need Marty; market closed)
+Cutover checklist is in M6.md: load the service, verify auto-resume + caffeinate,
+`kill -9` recovery (criterion 1), reboot test (criterion 2), optional breaker
+drill. Acceptance boxes for those stay unchecked until done.
+
+---
+
 ## 2026-09-28 — Engine M2: state-file validation + tz-aware scheduling (branch `m2-schema-validation`, NOT merged)
 
 **Goal:** Make SCHEMA.md enforced, not aspirational — versioned state files,
