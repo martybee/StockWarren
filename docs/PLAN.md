@@ -46,7 +46,7 @@ observe → graduate.*
 | # | Title | Theme | Status |
 |---|-------|-------|--------|
 | [M1](milestones/M1.md) | Safety-invariant test suite | Trust the rails before anything else | ✅ 2026-09-15 |
-| [M2](milestones/M2.md) | Data schema & validation | Make `SCHEMA.md` enforced, not aspirational | ⏳ |
+| [M2](milestones/M2.md) | Data schema & validation | Make `SCHEMA.md` enforced, not aspirational | ✅ 2026-09-30 |
 | [M3](milestones/M3.md) | Trade history & P&L persistence | One canonical record per completed trade | ⏳ |
 | [M4](milestones/M4.md) | ML pipeline to first trained model | From completed trades to a filtering model | ⏳ |
 | [M5](milestones/M5.md) | Strategy comparison & winner decision | Pre-registered decision rule for the A/B/C test | ⏳ |
@@ -70,6 +70,6 @@ a spec to check against. Draft v0.1 exists at [docs/SCHEMA.md](SCHEMA.md).
 
 ## Open questions for Marty
 
-- Is this 8-milestone arc right? Reorder/replace freely — it was inferred, not specified.
+- Is this 8-milestone arc right?Reorder/replace freely — it was inferred, not specified.
 - What's the winner metric for M5 (profit factor? drawdown-adjusted? win rate at N trades)?
 - Any target date or criteria for the M8 live decision, and the live dollar size?
