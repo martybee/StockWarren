@@ -26,10 +26,11 @@ never let the strategy outrun the risk engine while doing it.
   in `src/engine/safety.py`. Kill switch is file-backed with no programmatic reset.
 - **Dashboard:** Flask + vanilla JS, nav-rail sections per subsystem, 5-second
   polling (SocketIO is initialized server-side but unused by the page).
-- **Gaps:** ML untrained (0 completed trades); supervisor scripts exist in
-  `setup/services/` but are not loaded; trade history/P&L not consolidated;
-  `slippage.csv` empty (no fills yet). ~~No test suite~~ — M1's 86-test
-  safety-invariant suite merged 2026-09-15.
+- **Gaps:** ML untrained (0 completed trades); trade history/P&L not
+  consolidated; `slippage.csv` empty (no fills yet). ~~No test suite~~ — M1's
+  safety-invariant suite merged 2026-09-15 (132 tests after M2+M6).
+  ~~Supervisor not loaded~~ — M6 merged 2026-10-05: policy, staleness guard,
+  configured plist; the `launchctl load` cutover drill is the remaining step.
 
 ## The strategy experiment
 
@@ -50,7 +51,7 @@ observe → graduate.*
 | [M3](milestones/M3.md) | Trade history & P&L persistence | One canonical record per completed trade | ⏳ |
 | [M4](milestones/M4.md) | ML pipeline to first trained model | From completed trades to a filtering model | ⏳ |
 | [M5](milestones/M5.md) | Strategy comparison & winner decision | Pre-registered decision rule for the A/B/C test | ⏳ |
-| [M6](milestones/M6.md) | Process supervision & restart-safe ops | Survive crashes, sleeps, and stale processes | ⏳ |
+| [M6](milestones/M6.md) | Process supervision & restart-safe ops | Survive crashes, sleeps, and stale processes | 🔄 merged 2026-10-05; live cutover drill pending |
 | [M7](milestones/M7.md) | Real-time dashboard & decision log | See the bot think without tailing logs | ⏳ |
 | [M8](milestones/M8.md) | Live-readiness review | Written go/no-go; human approval gate | ⏳ |
 
