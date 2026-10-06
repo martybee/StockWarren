@@ -45,8 +45,10 @@ persist at Alpaca regardless).
 ### Notes for review
 - `main.py` behavior change: a MANUAL `python main.py` with a tripped kill
   switch or quarantined state file now comes up dashboard-only instead of
-  starting bots that idle at the tick check. Fail-closed, but a change — flag
-  if unwanted.
+  starting bots that idle at the tick check. Fail-closed, but a change.
+  **RATIFIED by Marty 2026-10-05:** a locked system should plainly say "bots
+  not started," not show RUNNING while secretly refusing. Resuming after a
+  trip is a deliberate two-step: remove the lock, then start the bots.
 - `dashboard.js` was edited beyond the nav hook (staleness badge in
   `updateStatus()`). Read of hard rule 4: it protects dashboard.js from CHART
   code; this is engine-track UI required verbatim by M6.md ("dashboard header
