@@ -9,6 +9,22 @@ and guardrails so we don't repeat mistakes.
 
 ---
 
+## 2026-10-06 (morning) — Breaker forensics: the 22:20 trip was a human kickstart
+
+Overnight the accounts sat locked again. Forensics: at 22:20:40 the process got
+a graceful SIGTERM + relaunch — the signature of `launchctl kickstart -k`.
+**Marty confirms he ran it**, trying the badge-clearing restart 40 minutes
+before the window cleared; the breaker counted supervised start #4 and locked
+all three accounts. Not a crash (err.log empty, no traceback), not a code
+fault — the policy worked twice in one night, once against a drill and once
+against an eager human. Claude's own miss: the morning kickstart pre-check did
+window arithmetic but never looked for EXISTING locks — check both.
+Morning recovery (authorized): locks removed, bots UI-started 08:1x ET, badge
+clear (running == disk), trading at the open. Lesson now lived, not just
+written: **the breaker counts restarts, not intentions.**
+
+---
+
 ## 2026-09-30 — Engine M6: supervision & restart-safe ops (branch `m6-supervision`, NOT merged)
 
 **Goal:** Implement CHART_PLAN §14 Decision 3 (auto-resume if clean + crash-loop
