@@ -51,7 +51,7 @@ observe → graduate.*
 | [M3](milestones/M3.md) | Trade history & P&L persistence | One canonical record per completed trade | ⏳ |
 | [M4](milestones/M4.md) | ML pipeline to first trained model | From completed trades to a filtering model | ⏳ |
 | [M5](milestones/M5.md) | Strategy comparison & winner decision | Pre-registered decision rule for the A/B/C test | ⏳ |
-| [M6](milestones/M6.md) | Process supervision & restart-safe ops | Survive crashes, sleeps, and stale processes | 🔄 merged 2026-10-05; live cutover drill pending |
+| [M6](milestones/M6.md) | Process supervision & restart-safe ops | Survive crashes, sleeps, and stale processes | ✅ 2026-10-05 (all drills verified live, breaker included) |
 | [M7](milestones/M7.md) | Real-time dashboard & decision log | See the bot think without tailing logs | ⏳ |
 | [M8](milestones/M8.md) | Live-readiness review | Written go/no-go; human approval gate | ⏳ |
 

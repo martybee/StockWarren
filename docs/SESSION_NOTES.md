@@ -57,10 +57,26 @@ persist at Alpaca regardless).
   LaunchAgents (only meaningful for system daemons).
 - Still open from M2: the scheduler-bypasses-`approve_order()` ruling.
 
-### Pending live drills (need Marty; market closed)
-Cutover checklist is in M6.md: load the service, verify auto-resume + caffeinate,
-`kill -9` recovery (criterion 1), reboot test (criterion 2), optional breaker
-drill. Acceptance boxes for those stay unchecked until done.
+### Live drills — ALL PASSED 2026-10-05 evening (market closed)
+- Service loaded 21:46 ET: bots auto-resumed on clean state, caffeinate attached,
+  staleness `false`, history recorded supervised start #1.
+- `kill -9` at 21:50:21 → healthy at 21:50:24 (**3 seconds**; criterion ≤60 s).
+  Caffeinate followed to the new PID. Supervised start #2.
+- Staleness guard's first real catch: committing the drill docs made disk HEAD ≠
+  running commit → `stale: true` + header badge within one polling cycle.
+- Reboot at 21:55 ET: service up at login, no command typed (criterion 2) — AND,
+  being supervised start #3 within the hour, **the crash-loop breaker fired in
+  production**: all three switches tripped with timestamp+reason, dashboard-only.
+  Unplanned but it WAS the optional breaker drill, and Decision 3 behaved to the
+  letter. M6 → ✅.
+
+### ⚠️ Gotcha — recovery from a breaker trip must not restart the process early
+After `rm`-ing the locks, a `launchctl kickstart` (or any process restart) while
+≥3 supervised starts are still inside the trailing hour is ANOTHER supervised
+start → the breaker re-trips immediately and the locks come back. Recover via
+the dashboard's Start path (same process, no new start recorded), or wait for
+the window to clear before restarting. The lock files gate TRADING, not the
+breaker's arithmetic — the arithmetic only resets with time.
 
 ---
 
