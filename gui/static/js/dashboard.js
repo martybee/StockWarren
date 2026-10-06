@@ -203,11 +203,16 @@ async function updateStatus() {
             const isStale = !!(p && p.stale === true);
             staleEl.hidden = !isStale;
             if (isStale) {
-                staleEl.title = 'This process runs commit '
-                    + (p.running_commit || '').slice(0, 7)
-                    + ' but the code on disk is at '
-                    + (p.disk_commit || '').slice(0, 7)
-                    + ' — restart the service to load current code.';
+                staleEl.title = 'STALE CODE — informational only; trading is unaffected.\n\n'
+                    + 'This process loaded commit ' + (p.running_commit || '').slice(0, 7)
+                    + ' when it started, but the repo on disk has since moved to '
+                    + (p.disk_commit || '').slice(0, 7) + '. A running program never '
+                    + 're-reads its own code, so this badge appears whenever new code '
+                    + 'is committed while the process keeps running the old code.\n\n'
+                    + 'The only cure is a deliberate restart, whenever convenient:\n'
+                    + '  launchctl kickstart -k gui/$(id -u)/com.stockwarren.bot\n\n'
+                    + 'Timing note: the crash-loop breaker counts supervised restarts — '
+                    + 'avoid restarting while 3 starts sit within the trailing hour.';
             }
         }
 
